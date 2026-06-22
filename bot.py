@@ -46,7 +46,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 SESSIONS_DIR = os.getenv("SESSIONS_DIR", "sessions")
 ACCOUNTS_JSON = os.getenv("ACCOUNTS_JSON", "accounts_config.json")
 PROXY_FILE = os.getenv("PROXY_FILE", "proxies.txt")
-SETTINGS_FILE = os.getenv("SETTINGS_FILE", "settings.json")  # store cycles/concurrency
+SETTINGS_FILE = os.getenv("SETTINGS_FILE", "settings.json")
 
 REPORT_REASONS = {
     1: InputReportReasonSpam(),
@@ -66,8 +66,8 @@ class SettingsManager:
     def __init__(self, settings_file=SETTINGS_FILE):
         self.settings_file = settings_file
         self.defaults = {
-            "random_cycles": True,   # if True, cycles = random 1-5; else fixed
-            "fixed_cycles": 3,       # used when random_cycles is False
+            "random_cycles": True,
+            "fixed_cycles": 3,
             "concurrency": 10,
         }
         self.settings = self.load()
@@ -76,7 +76,6 @@ class SettingsManager:
         if os.path.exists(self.settings_file):
             with open(self.settings_file, 'r') as f:
                 data = json.load(f)
-                # ensure all keys exist
                 for k, v in self.defaults.items():
                     if k not in data:
                         data[k] = v
@@ -91,13 +90,13 @@ class SettingsManager:
         if num < 0:
             num = 0
         self.settings['fixed_cycles'] = num
-        self.settings['random_cycles'] = (num == 0)  # if 0, enable random
+        self.settings['random_cycles'] = (num == 0)
         self.save()
 
     def set_random_cycles(self, enabled):
         self.settings['random_cycles'] = enabled
         if not enabled and self.settings['fixed_cycles'] == 0:
-            self.settings['fixed_cycles'] = 3  # default fallback
+            self.settings['fixed_cycles'] = 3
         self.save()
 
     def set_concurrency(self, num):
@@ -306,7 +305,7 @@ async def mass_report(clients, target, reason, message_ids=None, concurrency=10)
 # ---------- BOT HANDLERS ----------
 running_task = None
 current_report_info = {}
-settings = SettingsManager()  # global settings
+settings = SettingsManager()
 
 # Start and help
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -481,7 +480,6 @@ async def set_cycles(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Invalid number.")
 
 async def set_random_cycles(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # toggle
     current = settings.settings['random_cycles']
     new_val = not current
     settings.set_random_cycles(new_val)
@@ -520,6 +518,17 @@ async def start_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     args = context.args
     if len(args) < 2:
-        await update.message.reply_text("Usage: /startreport <target> <reason> [msg_ids]\n"
-                                        "target: @username or numeric ID\n"
-                                        "reason: 1=Spam,2=Violence,3=Pornography,4=ChildAbuse,5=Copyright,6=Other\
+        await update.message.reply_text(
+            "Usage: /startreport <target> <reason> [msg_ids]\n"
+            "target: @username or numeric ID\n"
+            "reason: 1=Spam,2=Violence,3=Pornography,4=ChildAbuse,5=Copyright,6=Other\n"
+            "msg_ids: optional comma-separated integers"
+        )
+        return
+    target = args[0]
+    try:
+        reason_code = int(args[1])
+    except:
+        await update.message.reply_text("Reason must be a number (1-6).")
+        return
+    reason = REPORT_R
