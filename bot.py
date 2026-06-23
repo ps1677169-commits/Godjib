@@ -589,6 +589,7 @@ async def report_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No active report.")
 
 async def main():
+    """Start the bot."""
     application = Application.builder().token(BOT_TOKEN).build()
     
     # Conversation handler for add_account
@@ -621,12 +622,17 @@ async def main():
     application.add_handler(CommandHandler("stopreport", stop_report))
     application.add_handler(CommandHandler("status", report_status))
     
-    await application.run_polling()
+    logger.info("Starting bot...")
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
     except Exception as e:
         logging.error(f"FATAL ERROR: {e}")
         import traceback
