@@ -626,7 +626,7 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        asyncio.run(main())
     except Exception as e:
         logging.error(f"FATAL ERROR: {e}")
         import traceback
