@@ -531,4 +531,107 @@ async def start_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("Reason must be a number (1-6).")
         return
-    reason = REPORT_R
+    reason = REPORT_REASONS.get(reason_code)
+    if not reason:
+        await update.message.reply_text("Reason not found (1-6).")
+        return
+    message_ids = []
+    if len(args) > 2:
+        try:
+            message_ids = [int(x) for x in args[2].split(',')]
+        except:
+            await update.message.reply_text("Message IDs must be comma-separated integers.")
+            return
+    async def perform_report():
+        global current_report_info
+        manager = AccountManager()
+        clients = await manager.get_all_clients()
+        if not clients:
+            await update.message.reply_text("❌ No authorized clients available.")
+            return
+        await update.message.reply_text(f"🚀 Starting mass report on {target} with {len(clients)} clients...")
+        concurrency = settings.get_concurrency()
+        for cycle in range(settings.get_cycles()):
+            success, fail, _ = await mass_report(clients, target, reason, message_ids, concurrency)
+            current_report_info = {"target": target, "cycle": cycle + 1, "success": success, "fail": fail}
+            await update.message.reply_text(f"📊 Cycle {cycle+1}: {success} success, {fail} failed")
+            if cycle < settings.get_cycles() - 1:
+                await asyncio.sleep(2)
+        await manager.close_clients(clients)
+        await update.message.reply_text("✅ Report completed!")
+        current_report_info = {}
+    running_task = asyncio.create_task(perform_report())
+
+async def stop_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global running_task
+    if running_task and not running_task.done():
+        running_task.cancel()
+        await update.message.reply_text("⏹️ Report stopped.")
+        running_task = None
+    else:
+        await update.message.reply_text("No active report.")
+
+async def report_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global running_task, current_report_info
+    if running_task and not running_task.done():
+        if current_report_info:
+            info = current_report_info
+            await update.message.reply_text(
+                f"📊 Report Status:\n"
+                f"Target: {info.get('target', 'N/A')}\n"
+                f"Cycle: {info.get('cycle', 'N/A')}\n"
+                f"Success: {info.get('success', 0)}\n"
+                f"Failed: {info.get('fail', 0)}"
+            )
+        else:
+            await update.message.reply_text("⏳ Report running...")
+    else:
+        await update.message.reply_text("No active report.")
+
+async def main():
+    application = Application.builder().token(BOT_TOKEN).build()
+    
+    # Conversation handler for add_account
+    add_account_handler = ConversationHandler(
+        entry_points=[CommandHandler("addaccount", add_account_start)],
+        states={
+            ADD_ACCOUNT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_phone),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_api_id),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_api_hash),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, add_account_proxy),
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    
+    application.add_handler(add_account_handler)
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("removeaccount", remove_account))
+    application.add_handler(CommandHandler("listaccounts", list_accounts))
+    application.add_handler(CommandHandler("addproxy", add_proxy))
+    application.add_handler(MessageHandler(filters.Document.TEXT, proxy_txt))
+    application.add_handler(CommandHandler("listproxies", list_proxies))
+    application.add_handler(CommandHandler("clearproxies", clear_proxies))
+    application.add_handler(CommandHandler("setcycles", set_cycles))
+    application.add_handler(CommandHandler("setrandomcycles", set_random_cycles))
+    application.add_handler(CommandHandler("setconcurrency", set_concurrency))
+    application.add_handler(CommandHandler("settings", show_settings))
+    application.add_handler(CommandHandler("startreport", start_report))
+    application.add_handler(CommandHandler("stopreport", stop_report))
+    application.add_handler(CommandHandler("status", report_status))
+    
+    await application.run_polling()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        logging.error(f"FATAL ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        # Keep container alive so you can see logs
+        import time
+        while True:
+            time.sleep(10)
