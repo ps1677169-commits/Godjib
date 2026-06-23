@@ -588,7 +588,7 @@ async def report_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("No active report.")
 
-async def main():
+def main():
     """Start the bot."""
     application = Application.builder().token(BOT_TOKEN).build()
     
@@ -622,22 +622,23 @@ async def main():
     application.add_handler(CommandHandler("stopreport", stop_report))
     application.add_handler(CommandHandler("status", report_status))
     
-    logger.info("Starting bot...")
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info("🤖 Bot Starting...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        logger.info("Starting bot application...")
+        main()
     except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
+        logger.info("⏹️ Bot stopped by user")
+        sys.exit(0)
     except Exception as e:
-        logging.error(f"FATAL ERROR: {e}")
+        logger.error(f"❌ FATAL ERROR: {e}")
         import traceback
         traceback.print_exc()
         # Keep container alive so you can see logs
         import time
+        logger.info("🔄 Keeping container alive for log inspection...")
         while True:
             time.sleep(10)
