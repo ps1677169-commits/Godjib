@@ -268,19 +268,46 @@ class InstantProxiesClient:
         return True
 
     def extract_stripe_info(self) -> bool:
-        try:
-            resp = self._request("GET", self.plan["checkout_url"])
-            html = resp.text
-            pk_match = re.search(r'pk_live_[a-zA-Z0-9]+', html)
-            if pk_match: self.stripe_pk = pk_match.group(0)
-            cs_match = re.search(r'client_secret["\']?\s*[:=]\s*["\']([^"\']+)["\']', html)
-            if cs_match: self.client_secret = cs_match.group(1)
-            if self.client_secret and "_secret_" in self.client_secret: self.payment_intent_id = self.client_secret.split("_secret_")[0]
-            token_match = re.search(r'name=["\']_token["\']\s*value=["\']([^"\']+)["\']', html)
-            if token_match: self.csrf_token = token_match.group(1)
-            for cookie in resp.cookies: self.cookies[cookie.name] = cookie.value
-            return True
-        except Exception: return False
+    try:
+        resp = self._request("GET", self.plan["checkout_url"])
+        html = resp.text
+        
+        # Try to find Stripe public key
+        pk_match = re.search(r'pk_live_[a-zA-Z0-9]+', html)
+        if pk_match:
+            self.stripe_pk = pk_match.group(0)
+        
+        # FALLBACK: Use default Stripe key if not found
+        if not self.stripe_pk:
+            self.stripe_pk = "pk_live_51MExQ9BjIQrRQnuxA9s9ahUkfIUHPoc3NFNidarWIUhEpwuc1bdjSJU9medEpVjoP4kTUrV2G8QWdxi9GjRJMUri005KO5xdyD"
+        
+        # Try to find client secret
+        cs_match = re.search(r'client_secret["\']?\s*[:=]\s*["\']([^"\']+)["\']', html)
+        if cs_match:
+            self.client_secret = cs_match.group(1)
+        
+        # Also try data attribute format
+        if not self.client_secret:
+            cs_match2 = re.search(r'data-client-secret=["\']([^"\']+)["\']', html)
+            if cs_match2:
+                self.client_secret = cs_match2.group(1)
+        
+        # Extract payment intent ID from client secret
+        if self.client_secret and "_secret_" in self.client_secret:
+            self.payment_intent_id = self.client_secret.split("_secret_")[0]
+        
+        # Try to find CSRF token
+        token_match = re.search(r'name=["\']_token["\']\s*value=["\']([^"\']+)["\']', html)
+        if token_match:
+            self.csrf_token = token_match.group(1)
+        
+        # Save cookies
+        for cookie in resp.cookies:
+            self.cookies[cookie.name] = cookie.value
+        
+        return True
+    except Exception:
+        return False
 
     def attempt_payment(self, card: dict) -> Tuple[str, str, bool]:
         card_number = re.sub(r"\D", "", card["number"])
