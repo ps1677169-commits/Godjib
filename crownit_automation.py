@@ -16,6 +16,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 
 from config import *
 
@@ -37,74 +38,72 @@ def get_random_proxy():
         return random.choice(proxies)
     return None
 
-# ==================== BROWSER BINARY FINDERS ====================
+# ==================== ULTIMATE BINARY FINDERS ====================
 
 def find_chromium_binary():
-    """Find Chromium/Chrome binary using environment, PATH, and common paths."""
-    # 1. Check environment variable
-    if os.environ.get("CHROME_BIN") and os.path.exists(os.environ["CHROME_BIN"]):
-        binary = os.environ["CHROME_BIN"]
-        logger.info(f"🔍 Found CHROME_BIN at: {binary}")
-        return binary
+    """Find Google Chrome/Chromium binary - guaranteed to work."""
+    # 1. Environment variable
+    env_bin = os.environ.get("CHROME_BIN")
+    if env_bin and os.path.exists(env_bin) and os.access(env_bin, os.X_OK):
+        logger.info(f"✅ Found CHROME_BIN: {env_bin}")
+        return env_bin
 
-    # 2. Try shutil.which (PATH search)
-    for name in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome", "chrome-browser"]:
-        binary = shutil.which(name)
-        if binary:
-            logger.info(f"🔍 Found {name} at: {binary}")
-            return binary
+    # 2. shutil.which (PATH search)
+    for name in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"]:
+        bin_path = shutil.which(name)
+        if bin_path:
+            logger.info(f"✅ Found {name} at: {bin_path}")
+            return bin_path
 
-    # 3. Common Nix/store paths
+    # 3. Common nix/store paths
     possible_paths = [
-        "/run/current-system/sw/bin/chromium",
         "/run/current-system/sw/bin/google-chrome",
-        "/run/current-system/sw/bin/chromium-browser",
-        "/nix/store/*-chromium/bin/chromium",
+        "/run/current-system/sw/bin/chromium",
         "/nix/store/*-google-chrome/bin/google-chrome",
-        "/usr/bin/chromium",
+        "/nix/store/*-chromium/bin/chromium",
         "/usr/bin/google-chrome",
-        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
     ]
     for path in possible_paths:
         if "*" in path:
             matches = glob.glob(path)
             for m in matches:
                 if os.path.exists(m) and os.access(m, os.X_OK):
-                    logger.info(f"🔍 Found binary at: {m}")
+                    logger.info(f"✅ Found binary at: {m}")
                     return m
         elif os.path.exists(path) and os.access(path, os.X_OK):
-            logger.info(f"🔍 Found binary at: {path}")
+            logger.info(f"✅ Found binary at: {path}")
             return path
 
-    # 4. Try `which` command as last resort
+    # 4. `which` command
     try:
         result = subprocess.run(["which", "google-chrome"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0 and result.stdout.strip():
-            binary = result.stdout.strip()
-            logger.info(f"🔍 Found via 'which' at: {binary}")
-            return binary
+            bin_path = result.stdout.strip()
+            logger.info(f"✅ Found via 'which': {bin_path}")
+            return bin_path
     except:
         pass
 
-    logger.error("❌ Chromium/Chrome binary not found!")
+    logger.error("❌ No Chrome/Chromium binary found!")
     return None
 
 def find_chromedriver():
-    """Find chromedriver binary using environment, PATH, and common paths."""
-    # 1. Check environment variable
-    if os.environ.get("CHROMEDRIVER_PATH") and os.path.exists(os.environ["CHROMEDRIVER_PATH"]):
-        binary = os.environ["CHROMEDRIVER_PATH"]
-        logger.info(f"🔍 Found CHROMEDRIVER_PATH at: {binary}")
-        return binary
+    """Find chromedriver - fallback to webdriver-manager if missing."""
+    # 1. Environment variable
+    env_driver = os.environ.get("CHROMEDRIVER_PATH")
+    if env_driver and os.path.exists(env_driver) and os.access(env_driver, os.X_OK):
+        logger.info(f"✅ Found CHROMEDRIVER_PATH: {env_driver}")
+        return env_driver
 
-    # 2. Try shutil.which
+    # 2. shutil.which
     for name in ["chromedriver", "chromium-driver"]:
-        binary = shutil.which(name)
-        if binary:
-            logger.info(f"🔍 Found chromedriver at: {binary}")
-            return binary
+        driver_path = shutil.which(name)
+        if driver_path:
+            logger.info(f"✅ Found chromedriver at: {driver_path}")
+            return driver_path
 
-    # 3. Common Nix/store paths
+    # 3. Common nix/store paths
     possible_paths = [
         "/run/current-system/sw/bin/chromedriver",
         "/nix/store/*-chromedriver/bin/chromedriver",
@@ -115,24 +114,31 @@ def find_chromedriver():
             matches = glob.glob(path)
             for m in matches:
                 if os.path.exists(m) and os.access(m, os.X_OK):
-                    logger.info(f"🔍 Found chromedriver at: {m}")
+                    logger.info(f"✅ Found chromedriver at: {m}")
                     return m
         elif os.path.exists(path) and os.access(path, os.X_OK):
-            logger.info(f"🔍 Found chromedriver at: {path}")
+            logger.info(f"✅ Found chromedriver at: {path}")
             return path
 
-    # 4. Try `which` command
+    # 4. `which` command
     try:
         result = subprocess.run(["which", "chromedriver"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0 and result.stdout.strip():
-            binary = result.stdout.strip()
-            logger.info(f"🔍 Found chromedriver via 'which' at: {binary}")
-            return binary
+            driver_path = result.stdout.strip()
+            logger.info(f"✅ Found chromedriver via 'which': {driver_path}")
+            return driver_path
     except:
         pass
 
-    logger.error("❌ Chromedriver not found!")
-    return None
+    # 5. Fallback: webdriver-manager
+    logger.warning("⚠️ Chromedriver not found in system. Falling back to webdriver-manager.")
+    try:
+        driver_path = ChromeDriverManager().install()
+        logger.info(f"✅ Downloaded chromedriver: {driver_path}")
+        return driver_path
+    except Exception as e:
+        logger.error(f"❌ webdriver-manager failed: {e}")
+        return None
 
 # ==================== MAIN AUTOMATION CLASS ====================
 
@@ -157,12 +163,12 @@ class CrownitAutomation:
         chrome_options.add_argument("--window-size=375,812")
         chrome_options.add_argument("--user-agent=Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36")
 
-        # Find and set binary
+        # Set binary location
         binary = find_chromium_binary()
         if binary:
             chrome_options.binary_location = binary
         else:
-            raise Exception("Chromium/Chrome binary not found. Ensure nixpacks installed it.")
+            raise Exception("❌ Chromium/Chrome binary not found. Ensure nixpacks installs google-chrome.")
 
         # Proxy
         if self.proxy:
@@ -175,12 +181,12 @@ class CrownitAutomation:
         prefs = {"profile.managed_default_content_settings.images": 2}
         chrome_options.add_experimental_option("prefs", prefs)
 
-        # Find chromedriver
+        # Get chromedriver
         chromedriver_path = find_chromedriver()
         if not chromedriver_path:
-            raise Exception("Chromedriver not found. Ensure nixpacks installed chromedriver.")
+            raise Exception("❌ Chromedriver not found and could not be downloaded.")
 
-        logger.info(f"🔍 Using chromedriver: {chromedriver_path}")
+        logger.info(f"🔧 Using chromedriver: {chromedriver_path}")
         service = Service(chromedriver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
