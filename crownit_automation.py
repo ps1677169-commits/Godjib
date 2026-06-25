@@ -6,6 +6,8 @@ import requests
 import logging
 import os
 import glob
+import shutil
+import subprocess
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -20,6 +22,8 @@ from config import *
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ==================== PROXY HELPERS ====================
+
 def load_proxies():
     proxies = []
     if os.path.exists(PROXY_LIST_FILE):
@@ -33,26 +37,61 @@ def get_random_proxy():
         return random.choice(proxies)
     return None
 
+# ==================== BROWSER BINARY FINDERS ====================
+
 def find_chromium_binary():
+    """Find Chromium/Chrome binary using multiple methods."""
+    # 1. Try shutil.which (PATH search)
+    for name in ["chromium", "chromium-browser", "google-chrome", "chrome", "chrome-browser"]:
+        binary = shutil.which(name)
+        if binary:
+            logger.info(f"🔍 Found {name} at: {binary}")
+            return binary
+
+    # 2. Common Nix/store paths
     possible_paths = [
         "/run/current-system/sw/bin/chromium",
+        "/run/current-system/sw/bin/google-chrome",
         "/nix/store/*-chromium/bin/chromium",
+        "/nix/store/*-google-chrome/bin/google-chrome",
         "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
         "/usr/bin/google-chrome",
-        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium-browser",
     ]
     for path in possible_paths:
         if "*" in path:
             matches = glob.glob(path)
             for m in matches:
                 if os.path.exists(m) and os.access(m, os.X_OK):
+                    logger.info(f"🔍 Found binary at: {m}")
                     return m
         elif os.path.exists(path) and os.access(path, os.X_OK):
+            logger.info(f"🔍 Found binary at: {path}")
             return path
+
+    # 3. Try `which` command as a last resort
+    try:
+        result = subprocess.run(["which", "chromium"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            binary = result.stdout.strip()
+            logger.info(f"🔍 Found via 'which' at: {binary}")
+            return binary
+    except:
+        pass
+
+    logger.error("❌ Chromium/Chrome binary not found!")
     return None
 
 def find_chromedriver():
+    """Find chromedriver binary."""
+    # 1. Try shutil.which
+    for name in ["chromedriver", "chromium-driver"]:
+        binary = shutil.which(name)
+        if binary:
+            logger.info(f"🔍 Found chromedriver at: {binary}")
+            return binary
+
+    # 2. Common Nix/store paths
     possible_paths = [
         "/run/current-system/sw/bin/chromedriver",
         "/nix/store/*-chromedriver/bin/chromedriver",
@@ -63,10 +102,26 @@ def find_chromedriver():
             matches = glob.glob(path)
             for m in matches:
                 if os.path.exists(m) and os.access(m, os.X_OK):
+                    logger.info(f"🔍 Found chromedriver at: {m}")
                     return m
         elif os.path.exists(path) and os.access(path, os.X_OK):
+            logger.info(f"🔍 Found chromedriver at: {path}")
             return path
+
+    # 3. Try `which` command
+    try:
+        result = subprocess.run(["which", "chromedriver"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            binary = result.stdout.strip()
+            logger.info(f"🔍 Found chromedriver via 'which' at: {binary}")
+            return binary
+    except:
+        pass
+
+    logger.error("❌ Chromedriver not found!")
     return None
+
+# ==================== MAIN AUTOMATION CLASS ====================
 
 class CrownitAutomation:
     def __init__(self, proxy=None, headless=True):
@@ -89,29 +144,30 @@ class CrownitAutomation:
         chrome_options.add_argument("--window-size=375,812")
         chrome_options.add_argument("--user-agent=Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36")
 
+        # Find and set binary
         binary = find_chromium_binary()
         if binary:
-            logger.info(f"🔍 Found Chromium at: {binary}")
             chrome_options.binary_location = binary
         else:
-            logger.error("❌ Chromium binary not found!")
-            raise Exception("Chromium binary not found")
+            raise Exception("Chromium/Chrome binary not found. Ensure nixpacks installed it.")
 
+        # Proxy
         if self.proxy:
             logger.info(f"🌐 Using proxy: {self.proxy}")
             chrome_options.add_argument(f"--proxy-server={self.proxy}")
         else:
             logger.info("🌐 No proxy used")
 
+        # Disable images for speed
         prefs = {"profile.managed_default_content_settings.images": 2}
         chrome_options.add_experimental_option("prefs", prefs)
 
+        # Find chromedriver
         chromedriver_path = find_chromedriver()
         if not chromedriver_path:
-            logger.error("❌ Chromedriver not found!")
-            raise Exception("Chromedriver not found")
+            raise Exception("Chromedriver not found. Ensure nixpacks installed chromedriver.")
 
-        logger.info(f"🔍 Found chromedriver at: {chromedriver_path}")
+        logger.info(f"🔍 Using chromedriver: {chromedriver_path}")
         service = Service(chromedriver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
@@ -128,6 +184,7 @@ class CrownitAutomation:
     def random_sleep(self, min_sec=1, max_sec=3):
         time.sleep(random.uniform(min_sec, max_sec))
 
+    # ---------- CREATE ACCOUNT ----------
     def create_account(self, phone):
         try:
             logger.info(f"📱 Creating account for {phone}")
@@ -167,6 +224,7 @@ class CrownitAutomation:
             self.human_click(continue_btn)
             self.random_sleep(2, 4)
 
+            # Check CAPTCHA
             captcha_img = self.driver.find_elements(By.CSS_SELECTOR, "img[src*='captcha'], .captcha, #captcha")
             if captcha_img:
                 src = captcha_img[0].get_attribute("src")
@@ -195,6 +253,7 @@ class CrownitAutomation:
             logger.error(f"❌ create_account error: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
 
+    # ---------- VERIFY OTP ----------
     def verify_otp(self, phone, otp, captcha_solution=None):
         try:
             if not self.driver:
@@ -253,6 +312,7 @@ class CrownitAutomation:
             logger.error(f"❌ verify_otp error: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
 
+    # ---------- COMPLETE SURVEY ----------
     def complete_survey(self, cookie):
         try:
             if not self.driver:
@@ -334,6 +394,7 @@ class CrownitAutomation:
             logger.error(f"❌ complete_survey error: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
 
+    # ---------- REDEEM REWARD ----------
     def redeem_reward(self, cookie, reward_type="amazon"):
         try:
             if not self.driver:
