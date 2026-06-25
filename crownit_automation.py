@@ -38,10 +38,10 @@ def get_random_proxy():
         return random.choice(proxies)
     return None
 
-# ==================== ULTIMATE BINARY FINDERS ====================
+# ==================== EXHAUSTIVE BINARY FINDERS ====================
 
 def find_chromium_binary():
-    """Find Google Chrome/Chromium binary - guaranteed to work."""
+    """Find Google Chrome/Chromium binary - exhaustive search."""
     # 1. Environment variable
     env_bin = os.environ.get("CHROME_BIN")
     if env_bin and os.path.exists(env_bin) and os.access(env_bin, os.X_OK):
@@ -49,39 +49,64 @@ def find_chromium_binary():
         return env_bin
 
     # 2. shutil.which (PATH search)
-    for name in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"]:
+    for name in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome", "chrome-browser"]:
         bin_path = shutil.which(name)
         if bin_path:
             logger.info(f"✅ Found {name} at: {bin_path}")
             return bin_path
 
-    # 3. Common nix/store paths
-    possible_paths = [
+    # 3. Common directories with glob patterns
+    search_patterns = [
         "/run/current-system/sw/bin/google-chrome",
         "/run/current-system/sw/bin/chromium",
-        "/nix/store/*-google-chrome/bin/google-chrome",
-        "/nix/store/*-chromium/bin/chromium",
         "/usr/bin/google-chrome",
         "/usr/bin/chromium",
+        "/opt/google/chrome/google-chrome",
+        "/nix/store/*-google-chrome/bin/google-chrome",
+        "/nix/store/*-chromium/bin/chromium",
+        "/nix/store/*-chrome/bin/chrome",
     ]
-    for path in possible_paths:
-        if "*" in path:
-            matches = glob.glob(path)
-            for m in matches:
-                if os.path.exists(m) and os.access(m, os.X_OK):
-                    logger.info(f"✅ Found binary at: {m}")
-                    return m
-        elif os.path.exists(path) and os.access(path, os.X_OK):
-            logger.info(f"✅ Found binary at: {path}")
-            return path
+    for pattern in search_patterns:
+        matches = glob.glob(pattern)
+        for m in matches:
+            if os.path.exists(m) and os.access(m, os.X_OK):
+                logger.info(f"✅ Found binary at: {m}")
+                return m
 
     # 4. `which` command
+    for name in ["google-chrome", "chromium"]:
+        try:
+            result = subprocess.run(["which", name], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                bin_path = result.stdout.strip()
+                logger.info(f"✅ Found via 'which {name}': {bin_path}")
+                return bin_path
+        except:
+            pass
+
+    # 5. Deep search in /nix/store (may be slow but thorough)
     try:
-        result = subprocess.run(["which", "google-chrome"], capture_output=True, text=True, timeout=5)
+        logger.info("⏳ Performing deep search for Chrome binary...")
+        result = subprocess.run(
+            ["find", "/nix/store", "-name", "google-chrome", "-type", "f", "-executable", "-print", "-quit"],
+            capture_output=True, text=True, timeout=10
+        )
         if result.returncode == 0 and result.stdout.strip():
             bin_path = result.stdout.strip()
-            logger.info(f"✅ Found via 'which': {bin_path}")
+            logger.info(f"✅ Found via deep search: {bin_path}")
             return bin_path
+    except Exception as e:
+        logger.warning(f"Deep search failed: {e}")
+
+    # 6. Try to find using `ls` in common paths
+    try:
+        for base in ["/run/current-system/sw/bin", "/usr/bin", "/opt/google/chrome"]:
+            if os.path.exists(base):
+                for f in os.listdir(base):
+                    full = os.path.join(base, f)
+                    if os.access(full, os.X_OK) and ("google-chrome" in f or "chromium" in f or "chrome" in f):
+                        logger.info(f"✅ Found in {base}: {full}")
+                        return full
     except:
         pass
 
@@ -89,7 +114,7 @@ def find_chromium_binary():
     return None
 
 def find_chromedriver():
-    """Find chromedriver - fallback to webdriver-manager if missing."""
+    """Find chromedriver - fallback to webdriver-manager."""
     # 1. Environment variable
     env_driver = os.environ.get("CHROMEDRIVER_PATH")
     if env_driver and os.path.exists(env_driver) and os.access(env_driver, os.X_OK):
@@ -103,22 +128,18 @@ def find_chromedriver():
             logger.info(f"✅ Found chromedriver at: {driver_path}")
             return driver_path
 
-    # 3. Common nix/store paths
-    possible_paths = [
+    # 3. Common paths
+    patterns = [
         "/run/current-system/sw/bin/chromedriver",
-        "/nix/store/*-chromedriver/bin/chromedriver",
         "/usr/bin/chromedriver",
+        "/nix/store/*-chromedriver/bin/chromedriver",
     ]
-    for path in possible_paths:
-        if "*" in path:
-            matches = glob.glob(path)
-            for m in matches:
-                if os.path.exists(m) and os.access(m, os.X_OK):
-                    logger.info(f"✅ Found chromedriver at: {m}")
-                    return m
-        elif os.path.exists(path) and os.access(path, os.X_OK):
-            logger.info(f"✅ Found chromedriver at: {path}")
-            return path
+    for pattern in patterns:
+        matches = glob.glob(pattern)
+        for m in matches:
+            if os.path.exists(m) and os.access(m, os.X_OK):
+                logger.info(f"✅ Found chromedriver at: {m}")
+                return m
 
     # 4. `which` command
     try:
@@ -131,7 +152,7 @@ def find_chromedriver():
         pass
 
     # 5. Fallback: webdriver-manager
-    logger.warning("⚠️ Chromedriver not found in system. Falling back to webdriver-manager.")
+    logger.warning("⚠️ Chromedriver not found. Downloading via webdriver-manager...")
     try:
         driver_path = ChromeDriverManager().install()
         logger.info(f"✅ Downloaded chromedriver: {driver_path}")
