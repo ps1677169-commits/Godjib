@@ -40,18 +40,25 @@ def get_random_proxy():
 # ==================== BROWSER BINARY FINDERS ====================
 
 def find_chromium_binary():
-    """Find Chromium/Chrome binary using multiple methods."""
-    # 1. Try shutil.which (PATH search)
-    for name in ["chromium", "chromium-browser", "google-chrome", "chrome", "chrome-browser"]:
+    """Find Chromium/Chrome binary using environment, PATH, and common paths."""
+    # 1. Check environment variable
+    if os.environ.get("CHROME_BIN") and os.path.exists(os.environ["CHROME_BIN"]):
+        binary = os.environ["CHROME_BIN"]
+        logger.info(f"🔍 Found CHROME_BIN at: {binary}")
+        return binary
+
+    # 2. Try shutil.which (PATH search)
+    for name in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome", "chrome-browser"]:
         binary = shutil.which(name)
         if binary:
             logger.info(f"🔍 Found {name} at: {binary}")
             return binary
 
-    # 2. Common Nix/store paths
+    # 3. Common Nix/store paths
     possible_paths = [
         "/run/current-system/sw/bin/chromium",
         "/run/current-system/sw/bin/google-chrome",
+        "/run/current-system/sw/bin/chromium-browser",
         "/nix/store/*-chromium/bin/chromium",
         "/nix/store/*-google-chrome/bin/google-chrome",
         "/usr/bin/chromium",
@@ -69,9 +76,9 @@ def find_chromium_binary():
             logger.info(f"🔍 Found binary at: {path}")
             return path
 
-    # 3. Try `which` command as a last resort
+    # 4. Try `which` command as last resort
     try:
-        result = subprocess.run(["which", "chromium"], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(["which", "google-chrome"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0 and result.stdout.strip():
             binary = result.stdout.strip()
             logger.info(f"🔍 Found via 'which' at: {binary}")
@@ -83,15 +90,21 @@ def find_chromium_binary():
     return None
 
 def find_chromedriver():
-    """Find chromedriver binary."""
-    # 1. Try shutil.which
+    """Find chromedriver binary using environment, PATH, and common paths."""
+    # 1. Check environment variable
+    if os.environ.get("CHROMEDRIVER_PATH") and os.path.exists(os.environ["CHROMEDRIVER_PATH"]):
+        binary = os.environ["CHROMEDRIVER_PATH"]
+        logger.info(f"🔍 Found CHROMEDRIVER_PATH at: {binary}")
+        return binary
+
+    # 2. Try shutil.which
     for name in ["chromedriver", "chromium-driver"]:
         binary = shutil.which(name)
         if binary:
             logger.info(f"🔍 Found chromedriver at: {binary}")
             return binary
 
-    # 2. Common Nix/store paths
+    # 3. Common Nix/store paths
     possible_paths = [
         "/run/current-system/sw/bin/chromedriver",
         "/nix/store/*-chromedriver/bin/chromedriver",
@@ -108,7 +121,7 @@ def find_chromedriver():
             logger.info(f"🔍 Found chromedriver at: {path}")
             return path
 
-    # 3. Try `which` command
+    # 4. Try `which` command
     try:
         result = subprocess.run(["which", "chromedriver"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0 and result.stdout.strip():
