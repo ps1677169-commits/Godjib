@@ -16,7 +16,6 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 
 from config import *
 
@@ -38,101 +37,81 @@ def get_random_proxy():
         return random.choice(proxies)
     return None
 
-# ==================== EXHAUSTIVE BINARY FINDERS ====================
+# ==================== BINARY FINDERS (no webdriver-manager) ====================
 
 def find_chromium_binary():
-    """Find Google Chrome/Chromium binary - exhaustive search."""
-    # 1. Environment variable
+    """Find Chromium binary – guaranteed path for nixpacks."""
+    # 1. Environment variable (optional)
     env_bin = os.environ.get("CHROME_BIN")
     if env_bin and os.path.exists(env_bin) and os.access(env_bin, os.X_OK):
         logger.info(f"✅ Found CHROME_BIN: {env_bin}")
         return env_bin
 
-    # 2. shutil.which (PATH search)
-    for name in ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome", "chrome-browser"]:
+    # 2. Fixed nixpacks path (primary)
+    primary_path = "/run/current-system/sw/bin/chromium"
+    if os.path.exists(primary_path) and os.access(primary_path, os.X_OK):
+        logger.info(f"✅ Found chromium at: {primary_path}")
+        return primary_path
+
+    # 3. Fallback: shutil.which
+    for name in ["chromium", "chromium-browser", "chrome"]:
         bin_path = shutil.which(name)
         if bin_path:
             logger.info(f"✅ Found {name} at: {bin_path}")
             return bin_path
 
-    # 3. Common directories with glob patterns
-    search_patterns = [
-        "/run/current-system/sw/bin/google-chrome",
+    # 4. Glob patterns
+    patterns = [
         "/run/current-system/sw/bin/chromium",
-        "/usr/bin/google-chrome",
-        "/usr/bin/chromium",
-        "/opt/google/chrome/google-chrome",
-        "/nix/store/*-google-chrome/bin/google-chrome",
         "/nix/store/*-chromium/bin/chromium",
-        "/nix/store/*-chrome/bin/chrome",
+        "/usr/bin/chromium",
     ]
-    for pattern in search_patterns:
+    for pattern in patterns:
         matches = glob.glob(pattern)
         for m in matches:
             if os.path.exists(m) and os.access(m, os.X_OK):
                 logger.info(f"✅ Found binary at: {m}")
                 return m
 
-    # 4. `which` command
-    for name in ["google-chrome", "chromium"]:
-        try:
-            result = subprocess.run(["which", name], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0 and result.stdout.strip():
-                bin_path = result.stdout.strip()
-                logger.info(f"✅ Found via 'which {name}': {bin_path}")
-                return bin_path
-        except:
-            pass
-
-    # 5. Deep search in /nix/store (may be slow but thorough)
+    # 5. `which` command
     try:
-        logger.info("⏳ Performing deep search for Chrome binary...")
-        result = subprocess.run(
-            ["find", "/nix/store", "-name", "google-chrome", "-type", "f", "-executable", "-print", "-quit"],
-            capture_output=True, text=True, timeout=10
-        )
+        result = subprocess.run(["which", "chromium"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0 and result.stdout.strip():
             bin_path = result.stdout.strip()
-            logger.info(f"✅ Found via deep search: {bin_path}")
+            logger.info(f"✅ Found via 'which': {bin_path}")
             return bin_path
-    except Exception as e:
-        logger.warning(f"Deep search failed: {e}")
-
-    # 6. Try to find using `ls` in common paths
-    try:
-        for base in ["/run/current-system/sw/bin", "/usr/bin", "/opt/google/chrome"]:
-            if os.path.exists(base):
-                for f in os.listdir(base):
-                    full = os.path.join(base, f)
-                    if os.access(full, os.X_OK) and ("google-chrome" in f or "chromium" in f or "chrome" in f):
-                        logger.info(f"✅ Found in {base}: {full}")
-                        return full
     except:
         pass
 
-    logger.error("❌ No Chrome/Chromium binary found!")
+    logger.error("❌ Chromium binary not found. Ensure nixpacks installs chromium.")
     return None
 
 def find_chromedriver():
-    """Find chromedriver - fallback to webdriver-manager."""
+    """Find chromedriver – no fallback to webdriver-manager."""
     # 1. Environment variable
     env_driver = os.environ.get("CHROMEDRIVER_PATH")
     if env_driver and os.path.exists(env_driver) and os.access(env_driver, os.X_OK):
         logger.info(f"✅ Found CHROMEDRIVER_PATH: {env_driver}")
         return env_driver
 
-    # 2. shutil.which
+    # 2. Fixed nixpacks path
+    primary_driver = "/run/current-system/sw/bin/chromedriver"
+    if os.path.exists(primary_driver) and os.access(primary_driver, os.X_OK):
+        logger.info(f"✅ Found chromedriver at: {primary_driver}")
+        return primary_driver
+
+    # 3. shutil.which
     for name in ["chromedriver", "chromium-driver"]:
         driver_path = shutil.which(name)
         if driver_path:
             logger.info(f"✅ Found chromedriver at: {driver_path}")
             return driver_path
 
-    # 3. Common paths
+    # 4. Glob patterns
     patterns = [
         "/run/current-system/sw/bin/chromedriver",
-        "/usr/bin/chromedriver",
         "/nix/store/*-chromedriver/bin/chromedriver",
+        "/usr/bin/chromedriver",
     ]
     for pattern in patterns:
         matches = glob.glob(pattern)
@@ -141,7 +120,7 @@ def find_chromedriver():
                 logger.info(f"✅ Found chromedriver at: {m}")
                 return m
 
-    # 4. `which` command
+    # 5. `which` command
     try:
         result = subprocess.run(["which", "chromedriver"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0 and result.stdout.strip():
@@ -151,15 +130,8 @@ def find_chromedriver():
     except:
         pass
 
-    # 5. Fallback: webdriver-manager
-    logger.warning("⚠️ Chromedriver not found. Downloading via webdriver-manager...")
-    try:
-        driver_path = ChromeDriverManager().install()
-        logger.info(f"✅ Downloaded chromedriver: {driver_path}")
-        return driver_path
-    except Exception as e:
-        logger.error(f"❌ webdriver-manager failed: {e}")
-        return None
+    logger.error("❌ Chromedriver not found. Install chromedriver via nixpacks.")
+    return None
 
 # ==================== MAIN AUTOMATION CLASS ====================
 
@@ -184,12 +156,17 @@ class CrownitAutomation:
         chrome_options.add_argument("--window-size=375,812")
         chrome_options.add_argument("--user-agent=Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36")
 
+        # Additional options for stability
+        chrome_options.add_argument("--remote-debugging-port=9222")
+        chrome_options.add_argument("--disable-software-rasterizer")
+        chrome_options.add_argument("--disable-extensions")
+
         # Set binary location
         binary = find_chromium_binary()
         if binary:
             chrome_options.binary_location = binary
         else:
-            raise Exception("❌ Chromium/Chrome binary not found. Ensure nixpacks installs google-chrome.")
+            raise Exception("❌ Chromium/Chrome binary not found. Ensure nixpacks installs chromium.")
 
         # Proxy
         if self.proxy:
@@ -205,7 +182,7 @@ class CrownitAutomation:
         # Get chromedriver
         chromedriver_path = find_chromedriver()
         if not chromedriver_path:
-            raise Exception("❌ Chromedriver not found and could not be downloaded.")
+            raise Exception("❌ Chromedriver not found. Ensure nixpacks installs chromedriver.")
 
         logger.info(f"🔧 Using chromedriver: {chromedriver_path}")
         service = Service(chromedriver_path)
@@ -234,6 +211,7 @@ class CrownitAutomation:
             self.driver.get(CROWNIT_LOGIN_URL)
             self.random_sleep(2, 4)
 
+            # Phone input
             phone_input = None
             selectors = ["input[type='tel']", "input[name='phone']", "input[placeholder*='phone' i]", "input[placeholder*='mobile' i]"]
             for sel in selectors:
@@ -248,6 +226,7 @@ class CrownitAutomation:
             self.human_type(phone_input, phone)
             self.random_sleep(1, 2)
 
+            # Find continue button by text
             buttons = self.driver.find_elements(By.TAG_NAME, "button")
             continue_btn = None
             for btn in buttons:
@@ -307,11 +286,18 @@ class CrownitAutomation:
                 if captcha_input:
                     self.human_type(captcha_input[0], captcha_solution)
                     self.random_sleep(1, 2)
-                    verify_btn = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit'], button:contains('Verify')")
+                    # Find verify button by text
+                    buttons = self.driver.find_elements(By.TAG_NAME, "button")
+                    for btn in buttons:
+                        txt = btn.text.lower()
+                        if "verify" in txt or "submit" in txt:
+                            verify_btn = btn
+                            break
                     if verify_btn:
-                        self.human_click(verify_btn[0])
+                        self.human_click(verify_btn)
                         self.random_sleep(2, 4)
 
+            # OTP input
             otp_input = None
             selectors = ["input[type='text'][maxlength='6']", "input[placeholder*='OTP' i]", "input[name='otp']"]
             for sel in selectors:
@@ -326,11 +312,19 @@ class CrownitAutomation:
             self.human_type(otp_input, otp)
             self.random_sleep(1, 2)
 
-            submit_btn = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit'], button:contains('Verify'), button:contains('Login')")
+            # Submit OTP – find by text
+            buttons = self.driver.find_elements(By.TAG_NAME, "button")
+            submit_btn = None
+            for btn in buttons:
+                txt = btn.text.lower()
+                if "verify" in txt or "login" in txt or "submit" in txt:
+                    submit_btn = btn
+                    break
             if submit_btn:
-                self.human_click(submit_btn[0])
+                self.human_click(submit_btn)
                 self.random_sleep(3, 5)
 
+            # Check login success
             dashboard = self.driver.find_elements(By.CSS_SELECTOR, ".dashboard, .survey-list, .rewards, [class*='home']")
             if dashboard:
                 self.logged_in = True
@@ -402,19 +396,34 @@ class CrownitAutomation:
                         self.human_type(text_input[0], random.choice(answers))
                         self.random_sleep(1, 2)
 
-                next_btn = self.driver.find_elements(By.CSS_SELECTOR, "button:contains('Next'), button:contains('Continue'), .next-btn")
-                if next_btn:
-                    self.human_click(next_btn[0])
-                    self.random_sleep(2, 4)
-                else:
-                    submit_btn = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit'], button:contains('Submit')")
-                    if submit_btn:
-                        self.human_click(submit_btn[0])
-                        self.random_sleep(3, 5)
-                        if self.driver.find_elements(By.CSS_SELECTOR, ".complete, .thank-you"):
-                            break
-                    else:
+                # Next/Submit button by text
+                buttons = self.driver.find_elements(By.TAG_NAME, "button")
+                found = False
+                for btn in buttons:
+                    txt = btn.text.lower()
+                    if "next" in txt or "continue" in txt:
+                        self.human_click(btn)
+                        found = True
                         break
+                if not found:
+                    for btn in buttons:
+                        txt = btn.text.lower()
+                        if "submit" in txt or "finish" in txt:
+                            self.human_click(btn)
+                            found = True
+                            break
+                if not found:
+                    # Fallback: try by type
+                    submit_btns = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit']")
+                    if submit_btns:
+                        self.human_click(submit_btns[0])
+                        found = True
+                if found:
+                    self.random_sleep(3, 5)
+                    if self.driver.find_elements(By.CSS_SELECTOR, ".complete, .thank-you"):
+                        break
+                else:
+                    break
 
             reward_element = self.driver.find_elements(By.CSS_SELECTOR, ".reward, [class*='reward'], .points-earned")
             reward = 0
@@ -470,9 +479,16 @@ class CrownitAutomation:
             self.human_click(target)
             self.random_sleep(2, 4)
 
-            redeem_btn = self.driver.find_elements(By.CSS_SELECTOR, "button:contains('Redeem'), button:contains('Claim'), .redeem-btn")
+            # Redeem button by text
+            buttons = self.driver.find_elements(By.TAG_NAME, "button")
+            redeem_btn = None
+            for btn in buttons:
+                txt = btn.text.lower()
+                if "redeem" in txt or "claim" in txt:
+                    redeem_btn = btn
+                    break
             if redeem_btn:
-                self.human_click(redeem_btn[0])
+                self.human_click(redeem_btn)
                 self.random_sleep(3, 5)
 
             code = self.driver.find_elements(By.CSS_SELECTOR, ".code, .gift-code, [class*='code']")
