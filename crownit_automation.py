@@ -13,7 +13,6 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.core.utils import ChromeType
 from selenium.webdriver.chrome.service import Service
 
 from config import *
@@ -32,6 +31,28 @@ def get_random_proxy():
     proxies = load_proxies()
     if proxies:
         return random.choice(proxies)
+    return None
+
+def find_chromium_binary():
+    """Find Chromium binary in common locations."""
+    possible_paths = [
+        "/run/current-system/sw/bin/chromium",
+        "/nix/store/*-chromium/bin/chromium",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromedriver",  # not binary but we'll try
+    ]
+    for path in possible_paths:
+        if "*" in path:
+            import glob
+            matches = glob.glob(path)
+            for m in matches:
+                if os.path.exists(m):
+                    return m
+        elif os.path.exists(path):
+            return path
     return None
 
 class CrownitAutomation:
@@ -55,29 +76,32 @@ class CrownitAutomation:
         chrome_options.add_argument("--window-size=375,812")
         chrome_options.add_argument("--user-agent=Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36")
 
-        # Chromium binary location (set by nixpacks)
-        chrome_options.binary_location = "/run/current-system/sw/bin/chromium"
+        # Find Chromium binary
+        binary = find_chromium_binary()
+        if binary:
+            logger.info(f"🔍 Found Chromium at: {binary}")
+            chrome_options.binary_location = binary
+        else:
+            logger.warning("⚠️ Chromium binary not found, using default (may fail)")
 
         if self.proxy:
             logger.info(f"🌐 Using proxy: {self.proxy}")
             chrome_options.add_argument(f"--proxy-server={self.proxy}")
         else:
-            logger.info("🌐 No proxy used (direct)")
+            logger.info("🌐 No proxy used")
 
         prefs = {"profile.managed_default_content_settings.images": 2}
         chrome_options.add_experimental_option("prefs", prefs)
 
         try:
-            # Try to use Chromium driver
-            driver_path = ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()
-        except Exception as e:
-            logger.error(f"Chromium driver install error: {e}, falling back to Chrome driver")
             driver_path = ChromeDriverManager().install()
-
-        service = Service(driver_path)
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        return driver
+            service = Service(driver_path)
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            return driver
+        except Exception as e:
+            logger.error(f"❌ ChromeDriver setup failed: {e}")
+            raise
 
     def human_type(self, element, text):
         for char in text:
