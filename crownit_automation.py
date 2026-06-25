@@ -3,6 +3,8 @@ import random
 import re
 import json
 import requests
+import logging
+import os
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -12,197 +14,203 @@ from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
-import logging
-from datetime import datetime
+
 from config import *
-import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ---------- PROXY LOADER ----------
+def load_proxies():
+    """Load proxies from file, return list."""
+    proxies = []
+    if os.path.exists(PROXY_LIST_FILE):
+        with open(PROXY_LIST_FILE, 'r') as f:
+            proxies = [line.strip() for line in f if line.strip()]
+    return proxies
+
+def get_random_proxy():
+    """Return a random proxy from the file, or None if none available."""
+    proxies = load_proxies()
+    if proxies:
+        return random.choice(proxies)
+    return None
+
+# ---------- AUTOMATION CLASS ----------
 class CrownitAutomation:
-    def __init__(self, proxy=None, headless=False):
-        """
-        Initialize Crownit automation with optional proxy.
-        proxy: str in format "http://user:pass@ip:port"
-        """
+    def __init__(self, proxy=None, headless=True):
         self.proxy = proxy
         self.headless = headless
         self.driver = None
         self.wait = None
         self.logged_in = False
-        
+
     def _get_driver(self):
-        """Setup Chrome driver with options."""
+        """Setup Chrome driver with proxy if available."""
         chrome_options = Options()
-        
         if self.headless:
             chrome_options.add_argument("--headless=new")
-        
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option("useAutomationExtension", False)
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--window-size=375,812")  # Mobile viewport
-        
-        # User agent - mobile
+        chrome_options.add_argument("--window-size=375,812")
         chrome_options.add_argument("--user-agent=Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36")
-        
-        # Proxy setup
+
+        # Proxy
         if self.proxy:
+            logger.info(f"🌐 Using proxy: {self.proxy}")
             chrome_options.add_argument(f"--proxy-server={self.proxy}")
-            logger.info(f"Using proxy: {self.proxy}")
-        
+        else:
+            logger.info("🌐 No proxy used (direct connection)")
+
         # Disable images for speed
         prefs = {"profile.managed_default_content_settings.images": 2}
         chrome_options.add_experimental_option("prefs", prefs)
-        
+
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        
         return driver
-    
+
     def human_type(self, element, text):
-        """Type text with human-like delays."""
         for char in text:
             element.send_keys(char)
-            time.sleep(random.uniform(*HUMAN_TYPING_DELAY))
-    
+            time.sleep(random.uniform(0.05, 0.2))
+
     def human_click(self, element):
-        """Click with human-like movement."""
         ActionChains(self.driver).move_to_element(element).pause(random.uniform(0.1, 0.3)).click().perform()
-    
+
     def random_sleep(self, min_sec=1, max_sec=3):
-        """Random sleep to simulate human behavior."""
         time.sleep(random.uniform(min_sec, max_sec))
-    
+
     def create_account(self, phone):
-        """
-        Create a new Crownit account.
-        Returns: dict with status, request_id, and message.
-        """
+        """Create a new Crownit account using OTP flow."""
         try:
+            logger.info(f"📱 Creating account for {phone}")
             self.driver = self._get_driver()
             self.wait = WebDriverWait(self.driver, 15)
-            
-            logger.info(f"Creating account for phone: {phone}")
-            
-            # Step 1: Go to login page
+
+            # 1. Go to login page
             self.driver.get(CROWNIT_LOGIN_URL)
             self.random_sleep(2, 4)
-            
-            # Step 2: Find and fill phone number
-            phone_input = self.wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='tel'], input[name='phone'], input[placeholder*='phone' i]"))
-            )
+
+            # 2. Find phone input
+            phone_input = None
+            selectors = ["input[type='tel']", "input[name='phone']", "input[placeholder*='phone' i]", "input[placeholder*='mobile' i]"]
+            for sel in selectors:
+                try:
+                    phone_input = self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, sel)))
+                    break
+                except:
+                    continue
+            if not phone_input:
+                raise Exception("Phone input field not found on page.")
+
             self.human_type(phone_input, phone)
             self.random_sleep(1, 2)
-            
-            # Step 3: Click continue/get OTP button
-            continue_btn = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit'], button:contains('Continue'), button:contains('Get OTP')")
-            # Fallback: find by text
+
+            # 3. Click continue/Get OTP button
+            buttons = self.driver.find_elements(By.TAG_NAME, "button")
+            continue_btn = None
+            for btn in buttons:
+                txt = btn.text.lower()
+                if "continue" in txt or "otp" in txt or "next" in txt or "submit" in txt:
+                    continue_btn = btn
+                    break
             if not continue_btn:
-                buttons = self.driver.find_elements(By.TAG_NAME, "button")
-                for btn in buttons:
-                    if "continue" in btn.text.lower() or "otp" in btn.text.lower() or "next" in btn.text.lower():
-                        continue_btn = btn
-                        break
-            
-            if continue_btn:
-                self.human_click(continue_btn)
-                self.random_sleep(2, 4)
-            
-            # Step 4: Check if CAPTCHA appears
-            captcha_element = self.driver.find_elements(By.CSS_SELECTOR, "img[src*='captcha'], .captcha, #captcha")
-            if captcha_element:
-                # Save CAPTCHA image and return to user
-                captcha_img = captcha_element[0]
-                captcha_src = captcha_img.get_attribute("src")
-                if captcha_src:
-                    # Download and save captcha
-                    response = requests.get(captcha_src)
+                # Try by type
+                continue_btn = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit']")
+                if continue_btn:
+                    continue_btn = continue_btn[0]
+                else:
+                    raise Exception("Continue/Get OTP button not found.")
+            self.human_click(continue_btn)
+            self.random_sleep(2, 4)
+
+            # 4. Check for CAPTCHA
+            captcha_img = self.driver.find_elements(By.CSS_SELECTOR, "img[src*='captcha'], .captcha, #captcha")
+            if captcha_img:
+                src = captcha_img[0].get_attribute("src")
+                if src:
+                    # Download captcha image
+                    resp = requests.get(src)
                     captcha_path = f"captcha_{phone}.png"
                     with open(captcha_path, "wb") as f:
-                        f.write(response.content)
-                    logger.info("CAPTCHA detected, saved for user")
+                        f.write(resp.content)
+                    logger.info("🧩 CAPTCHA detected, saved for user")
                     return {
                         "status": "captcha_required",
                         "message": "CAPTCHA required",
                         "captcha_path": captcha_path,
                         "phone": phone
                     }
-            
-            # Step 5: OTP sent - wait for user to provide OTP
-            # Store the request
+
+            # 5. OTP sent
             request_id = f"req_{int(time.time())}_{phone[-4:]}"
-            
             return {
                 "status": "otp_sent",
                 "request_id": request_id,
                 "phone": phone,
-                "message": "OTP sent to your phone. Please provide the OTP."
+                "message": "OTP sent successfully."
             }
-            
+
         except Exception as e:
-            logger.error(f"Account creation error: {e}")
+            logger.error(f"❌ create_account error: {e}", exc_info=True)
             return {
                 "status": "error",
-                "message": f"Failed to create account: {str(e)}"
+                "message": str(e)
             }
-        finally:
-            # Don't close driver here - we need it for OTP verification
-            pass
-    
+
     def verify_otp(self, phone, otp, captcha_solution=None):
-        """
-        Verify OTP and complete login.
-        If captcha_solution is provided, solves captcha first.
-        """
+        """Verify OTP and complete login."""
         try:
             if not self.driver:
                 self.driver = self._get_driver()
                 self.wait = WebDriverWait(self.driver, 15)
                 self.driver.get(CROWNIT_LOGIN_URL)
                 self.random_sleep(2, 4)
-            
-            # If CAPTCHA needs solving
+
+            # If CAPTCHA solution provided
             if captcha_solution:
-                captcha_input = self.driver.find_element(By.CSS_SELECTOR, "input[name='captcha'], #captcha_input")
+                captcha_input = self.driver.find_elements(By.CSS_SELECTOR, "input[name='captcha'], #captcha_input")
                 if captcha_input:
-                    self.human_type(captcha_input, captcha_solution)
+                    self.human_type(captcha_input[0], captcha_solution)
                     self.random_sleep(1, 2)
-                    
-                    # Click verify/submit
-                    verify_btn = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit'], button:contains('Verify')")
+                    verify_btn = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit'], button:contains('Verify')")
                     if verify_btn:
-                        self.human_click(verify_btn)
+                        self.human_click(verify_btn[0])
                         self.random_sleep(2, 4)
-            
+
             # Enter OTP
-            otp_input = self.wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='text'][maxlength='6'], input[placeholder*='OTP' i], input[name='otp']"))
-            )
+            otp_input = None
+            selectors = ["input[type='text'][maxlength='6']", "input[placeholder*='OTP' i]", "input[name='otp']"]
+            for sel in selectors:
+                try:
+                    otp_input = self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, sel)))
+                    break
+                except:
+                    continue
+            if not otp_input:
+                raise Exception("OTP input field not found.")
+
             self.human_type(otp_input, otp)
             self.random_sleep(1, 2)
-            
+
             # Submit OTP
-            submit_btn = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit'], button:contains('Verify'), button:contains('Login')")
+            submit_btn = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit'], button:contains('Verify'), button:contains('Login')")
             if submit_btn:
-                self.human_click(submit_btn)
+                self.human_click(submit_btn[0])
                 self.random_sleep(3, 5)
-            
-            # Check if login successful
-            # Look for dashboard/survey elements
+
+            # Check login success
             dashboard = self.driver.find_elements(By.CSS_SELECTOR, ".dashboard, .survey-list, .rewards, [class*='home']")
             if dashboard:
                 self.logged_in = True
-                # Get cookies
                 cookies = self.driver.get_cookies()
                 cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
-                
                 return {
                     "status": "success",
                     "message": "Login successful",
@@ -210,245 +218,150 @@ class CrownitAutomation:
                     "phone": phone
                 }
             else:
-                # Check for error
                 error = self.driver.find_elements(By.CSS_SELECTOR, ".error, .alert, [class*='error']")
                 if error:
-                    return {
-                        "status": "error",
-                        "message": f"Login failed: {error[0].text}"
-                    }
-                return {
-                    "status": "error",
-                    "message": "Login failed - unknown error"
-                }
-                
+                    return {"status": "error", "message": error[0].text}
+                return {"status": "error", "message": "Login failed - unknown reason"}
+
         except Exception as e:
-            logger.error(f"OTP verification error: {e}")
-            return {
-                "status": "error",
-                "message": f"Verification failed: {str(e)}"
-            }
-    
+            logger.error(f"❌ verify_otp error: {e}", exc_info=True)
+            return {"status": "error", "message": str(e)}
+
     def complete_survey(self, cookie):
-        """
-        Complete a survey with human-like behavior.
-        Returns: dict with status, reward, etc.
-        """
+        """Complete survey using cookie."""
         try:
             if not self.driver:
                 self.driver = self._get_driver()
                 self.wait = WebDriverWait(self.driver, 15)
-            
-            # Set cookies
+
             if cookie:
                 for c in cookie.split("; "):
                     if "=" in c:
                         name, value = c.split("=", 1)
                         self.driver.add_cookie({"name": name, "value": value})
-            
-            # Go to survey page
+
             self.driver.get(CROWNIT_SURVEY_URL)
             self.random_sleep(3, 5)
-            
-            # Check if survey available
+
             survey_available = self.driver.find_elements(By.CSS_SELECTOR, ".survey-item, .available-survey, [class*='survey']")
             if not survey_available:
-                return {
-                    "status": "no_survey",
-                    "message": "No survey available at this time"
-                }
-            
-            # Click on first available survey
+                return {"status": "no_survey", "message": "No survey available"}
+
             self.human_click(survey_available[0])
             self.random_sleep(2, 4)
-            
-            # Survey flow - loop through questions
+
             question_count = 0
-            max_questions = 30  # Safety limit
-            
+            max_questions = 30
             while question_count < max_questions:
                 question_count += 1
-                
-                # Wait for question to load
-                question = self.wait.until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, ".question, [class*='question'], .survey-question"))
-                )
-                question_text = question.text
-                logger.info(f"Question {question_count}: {question_text[:50]}...")
-                
-                # Find answer options
-                options = self.driver.find_elements(By.CSS_SELECTOR, "input[type='radio'], input[type='checkbox'], .option, [class*='option'], button.option")
-                
+                try:
+                    question = self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".question, [class*='question'], .survey-question")))
+                except:
+                    break
+
+                options = self.driver.find_elements(By.CSS_SELECTOR, "input[type='radio'], input[type='checkbox'], .option, [class*='option']")
                 if options:
-                    # Select random answer (with bias toward first options for speed)
-                    if len(options) > 1:
-                        # Sometimes select first, sometimes random
-                        if random.random() < 0.3:
-                            selected = 0
-                        else:
-                            selected = random.randint(0, len(options) - 1)
-                    else:
-                        selected = 0
-                    
-                    # Click on the option label or the input itself
+                    selected = random.randint(0, len(options)-1) if len(options)>1 else 0
                     try:
-                        option_label = self.driver.find_element(By.XPATH, f"//label[contains(@for, '{options[selected].get_attribute('id')}')]")
-                        self.human_click(option_label)
+                        label = self.driver.find_element(By.XPATH, f"//label[contains(@for, '{options[selected].get_attribute('id')}')]")
+                        self.human_click(label)
                     except:
                         self.human_click(options[selected])
-                    
                     self.random_sleep(0.5, 1.5)
                 else:
-                    # Text input question
                     text_input = self.driver.find_elements(By.CSS_SELECTOR, "input[type='text'], textarea")
                     if text_input:
-                        # Generate a realistic answer
-                        answers = [
-                            "I think it's good", 
-                            "Works well for me", 
-                            "Satisfied with the experience",
-                            "Pretty good overall",
-                            "Could be better but okay",
-                            "Happy with the service",
-                            "Would recommend to others"
-                        ]
+                        answers = ["Good", "Satisfied", "Okay", "Works well", "Happy"]
                         self.human_type(text_input[0], random.choice(answers))
                         self.random_sleep(1, 2)
-                
-                # Click next/continue button
-                next_btn = self.driver.find_elements(By.CSS_SELECTOR, "button:contains('Next'), button:contains('Continue'), .next-btn, [class*='next']")
+
+                next_btn = self.driver.find_elements(By.CSS_SELECTOR, "button:contains('Next'), button:contains('Continue'), .next-btn")
                 if next_btn:
                     self.human_click(next_btn[0])
                     self.random_sleep(2, 4)
                 else:
-                    # Try to find submit button
-                    submit_btn = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit'], button:contains('Submit'), button:contains('Finish')")
+                    submit_btn = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit'], button:contains('Submit')")
                     if submit_btn:
                         self.human_click(submit_btn[0])
                         self.random_sleep(3, 5)
-                        # Check if survey completed
-                        completion_msg = self.driver.find_elements(By.CSS_SELECTOR, ".complete, .thank-you, [class*='complete'], [class*='thank']")
-                        if completion_msg:
+                        if self.driver.find_elements(By.CSS_SELECTOR, ".complete, .thank-you"):
                             break
                     else:
-                        # No next button - might be last question
                         break
-                
-                # Random pause between questions
-                self.random_sleep(1, 3)
-            
-            # Survey complete - get reward
+
             reward_element = self.driver.find_elements(By.CSS_SELECTOR, ".reward, [class*='reward'], .points-earned")
             reward = 0
             if reward_element:
-                reward_text = reward_element[0].text
-                reward_match = re.search(r'(\d+)', reward_text)
-                if reward_match:
-                    reward = int(reward_match.group(1))
-            
+                match = re.search(r'(\d+)', reward_element[0].text)
+                if match:
+                    reward = int(match.group(1))
+
             return {
                 "status": "success",
-                "message": "Survey completed successfully",
+                "message": "Survey completed",
                 "reward": reward,
                 "questions_answered": question_count
             }
-            
-        except TimeoutException:
-            return {
-                "status": "timeout",
-                "message": "Survey timed out"
-            }
+
         except Exception as e:
-            logger.error(f"Survey completion error: {e}")
-            return {
-                "status": "error",
-                "message": f"Survey failed: {str(e)}"
-            }
-    
+            logger.error(f"❌ complete_survey error: {e}", exc_info=True)
+            return {"status": "error", "message": str(e)}
+
     def redeem_reward(self, cookie, reward_type="amazon"):
-        """
-        Redeem reward from Crownit.
-        reward_type: 'amazon' or 'playstore'
-        """
+        """Redeem reward."""
         try:
             if not self.driver:
                 self.driver = self._get_driver()
                 self.wait = WebDriverWait(self.driver, 15)
-            
-            # Set cookies
+
             if cookie:
                 for c in cookie.split("; "):
                     if "=" in c:
                         name, value = c.split("=", 1)
                         self.driver.add_cookie({"name": name, "value": value})
-            
-            # Go to rewards page
+
             self.driver.get(CROWNIT_REWARDS_URL)
             self.random_sleep(3, 5)
-            
-            # Find reward options
+
             rewards = self.driver.find_elements(By.CSS_SELECTOR, ".reward-item, [class*='reward'], .gift-card")
-            
-            # Filter by type
-            target_reward = None
-            for reward in rewards:
-                reward_text = reward.text.lower()
-                if reward_type == "amazon" and ("amazon" in reward_text or "amzn" in reward_text):
-                    target_reward = reward
+            target = None
+            for r in rewards:
+                txt = r.text.lower()
+                if reward_type == "amazon" and ("amazon" in txt or "amzn" in txt):
+                    target = r
                     break
-                elif reward_type == "playstore" and ("playstore" in reward_text or "google play" in reward_text or "play store" in reward_text):
-                    target_reward = reward
+                elif reward_type == "playstore" and ("playstore" in txt or "google play" in txt):
+                    target = r
                     break
-            
-            if not target_reward:
-                # If not found, pick the first available
-                target_reward = rewards[0] if rewards else None
-            
-            if not target_reward:
-                return {
-                    "status": "error",
-                    "message": "No rewards available"
-                }
-            
-            # Click on reward
-            self.human_click(target_reward)
+            if not target and rewards:
+                target = rewards[0]
+            if not target:
+                return {"status": "error", "message": "No rewards found"}
+
+            self.human_click(target)
             self.random_sleep(2, 4)
-            
-            # Click redeem button
-            redeem_btn = self.driver.find_element(By.CSS_SELECTOR, "button:contains('Redeem'), button:contains('Claim'), .redeem-btn")
+
+            redeem_btn = self.driver.find_elements(By.CSS_SELECTOR, "button:contains('Redeem'), button:contains('Claim'), .redeem-btn")
             if redeem_btn:
-                self.human_click(redeem_btn)
+                self.human_click(redeem_btn[0])
                 self.random_sleep(3, 5)
-            
-            # Check if code or link is provided
-            code_element = self.driver.find_elements(By.CSS_SELECTOR, ".code, .gift-code, [class*='code'], .reward-code")
-            link_element = self.driver.find_elements(By.CSS_SELECTOR, "a[href*='redeem'], .reward-link, [class*='link']")
-            
-            reward_code = None
-            reward_link = None
-            
-            if code_element:
-                reward_code = code_element[0].text
-            elif link_element:
-                reward_link = link_element[0].get_attribute("href")
-            
+
+            code = self.driver.find_elements(By.CSS_SELECTOR, ".code, .gift-code, [class*='code']")
+            link = self.driver.find_elements(By.CSS_SELECTOR, "a[href*='redeem']")
+
             return {
                 "status": "success",
-                "message": "Reward redeemed successfully",
-                "reward_code": reward_code,
-                "reward_link": reward_link,
+                "message": "Reward redeemed",
+                "reward_code": code[0].text if code else None,
+                "reward_link": link[0].get_attribute("href") if link else None,
                 "reward_type": reward_type
             }
-            
+
         except Exception as e:
-            logger.error(f"Reward redemption error: {e}")
-            return {
-                "status": "error",
-                "message": f"Reward redemption failed: {str(e)}"
-            }
-    
+            logger.error(f"❌ redeem_reward error: {e}", exc_info=True)
+            return {"status": "error", "message": str(e)}
+
     def cleanup(self):
-        """Close the driver."""
         if self.driver:
             self.driver.quit()
             self.driver = None
