@@ -2,7 +2,10 @@
 nixPkgs = ["python311", "chromium", "chromedriver"]
 
 [phases.install]
-cmds = ["pip install -r requirements.txt"]
+cmds = [
+    "pip install -r requirements.txt",
+    "echo 'Chrome installed at /run/current-system/sw/bin/chromium'"
+]
 
 [start]
 cmd = "python bot.py"
