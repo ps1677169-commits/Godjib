@@ -8,6 +8,7 @@ import re
 import json
 import logging
 import asyncio
+import random
 from datetime import datetime
 from typing import Dict, Optional
 
@@ -18,9 +19,9 @@ from telegram.ext import (
 )
 from dotenv import load_dotenv
 
-from config import BOT_TOKEN, PROXY_LIST_FILE, USE_PROXY
+from config import BOT_TOKEN, USE_PROXY, PROXY_LIST_FILE
 from database import *
-from crownit_automation import CrownitAutomation
+from crownit_automation import CrownitAutomation, get_random_proxy
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -31,6 +32,8 @@ PHONE, OTP, CAPTCHA, SURVEY = range(4)
 
 # Store active automations per user
 active_automations = {}
+
+# ============ Helper Functions ============
 
 def load_proxies():
     """Load proxies from file."""
@@ -65,9 +68,13 @@ async def start(update: Update, context):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    proxy_status = "✅ Enabled" if USE_PROXY and load_proxies() else "❌ Disabled"
+    
     await update.message.reply_text(
-        "🎯 **Crownit Survey Bot**\n\n"
-        "Automate Crownit surveys and earn rewards!\n\n"
+        f"🎯 **Crownit Survey Bot**\n\n"
+        f"Automate Crownit surveys and earn rewards!\n\n"
+        f"🌐 Proxy: {proxy_status}\n"
+        f"📦 Proxies loaded: {len(load_proxies())}\n\n"
         "🔥 **Features:**\n"
         "• Create Crownit accounts\n"
         "• Complete surveys automatically\n"
@@ -104,8 +111,9 @@ async def button_handler(update: Update, context):
         
         msg = "📋 **Your Accounts**\n\n"
         for acc in accounts:
+            status_emoji = "🟢" if acc[6] == "active" else "🔴"
             msg += (
-                f"📱 `{acc[2]}`\n"
+                f"{status_emoji} `{acc[2]}`\n"
                 f"   Status: {acc[6]}\n"
                 f"   Total Earned: ₹{acc[8] or 0}\n"
                 f"   Created: {acc[7][:10]}\n\n"
@@ -189,8 +197,9 @@ async def button_handler(update: Update, context):
         )
     
     elif data == "settings":
+        proxy_status = "ON" if USE_PROXY and load_proxies() else "OFF"
         keyboard = [
-            [InlineKeyboardButton("🌐 Proxy: ON", callback_data="toggle_proxy")],
+            [InlineKeyboardButton(f"🌐 Proxy: {proxy_status}", callback_data="toggle_proxy")],
             [InlineKeyboardButton("🔙 Back", callback_data="back")],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -216,7 +225,8 @@ async def run_survey(update, context, account):
     """Run survey in background."""
     try:
         user_id = update.effective_user.id
-        automation = CrownitAutomation(proxy=get_proxy() if USE_PROXY else None)
+        proxy = get_random_proxy() if USE_PROXY else None
+        automation = CrownitAutomation(proxy=proxy)
         
         result = automation.complete_survey(account[4])  # cookie
         
@@ -240,7 +250,7 @@ async def run_survey(update, context, account):
         automation.cleanup()
         
     except Exception as e:
-        logger.error(f"Survey error: {e}")
+        logger.error(f"Survey error: {e}", exc_info=True)
         await context.bot.send_message(
             user_id,
             f"❌ **Survey Error**\n\n{str(e)}"
@@ -250,7 +260,8 @@ async def run_redeem(update, context, account, reward_type):
     """Run reward redemption in background."""
     try:
         user_id = update.effective_user.id
-        automation = CrownitAutomation(proxy=get_proxy() if USE_PROXY else None)
+        proxy = get_random_proxy() if USE_PROXY else None
+        automation = CrownitAutomation(proxy=proxy)
         
         result = automation.redeem_reward(account[4], reward_type)
         
@@ -273,7 +284,7 @@ async def run_redeem(update, context, account, reward_type):
         automation.cleanup()
         
     except Exception as e:
-        logger.error(f"Redeem error: {e}")
+        logger.error(f"Redeem error: {e}", exc_info=True)
         await context.bot.send_message(
             user_id,
             f"❌ **Redemption Error**\n\n{str(e)}"
@@ -308,7 +319,8 @@ async def phone_input(update: Update, context):
     )
     
     # Start account creation
-    automation = CrownitAutomation(proxy=get_proxy() if USE_PROXY else None)
+    proxy = get_random_proxy() if USE_PROXY else None
+    automation = CrownitAutomation(proxy=proxy)
     context.user_data["automation"] = automation
     
     result = automation.create_account(phone)
@@ -345,9 +357,14 @@ async def phone_input(update: Update, context):
         return CAPTCHA
     
     else:
+        # Error
+        error_msg = result.get("message", "Unknown error")
         await update.message.reply_text(
-            f"❌ **Account Creation Failed**\n\n{result.get('message', 'Unknown error')}"
+            f"❌ **Account Creation Failed**\n\n{error_msg}\n\n"
+            "Please try again or use a different phone number.",
+            parse_mode="Markdown"
         )
+        automation.cleanup()
         return ConversationHandler.END
 
 async def otp_input(update: Update, context):
@@ -426,42 +443,28 @@ async def captcha_input(update: Update, context):
     
     await update.message.reply_text("⏳ **Verifying CAPTCHA...**", parse_mode="Markdown")
     
-    # Proceed with OTP after CAPTCHA
-    result = automation.verify_otp(phone, "", captcha)
+    # Proceed with OTP after CAPTCHA (we don't have OTP yet, so we need to ask for it)
+    # The flow is: CAPTCHA solved -> then ask for OTP again
+    # But the current flow expects OTP after CAPTCHA.
+    # We'll handle it by moving back to OTP state.
+    context.user_data["phone"] = phone
+    context.user_data["captcha_solved"] = captcha
     
-    # Note: This might need adjustment based on the actual CAPTCHA flow
-    
-    if result["status"] == "success":
-        user_id = update.effective_user.id
-        account_id = create_account(
-            user_id,
-            phone,
-            f"user_{phone[-6:]}@temp.com",
-            "auto_generated",
-            result.get("cookie")
-        )
-        
-        await update.message.reply_text(
-            f"✅ **Account Created Successfully!**\n\n"
-            f"📱 Phone: `{phone}`\n"
-            f"🆔 Account ID: `{account_id}`\n\n"
-            f"Ready to start surveys!",
-            parse_mode="Markdown"
-        )
-        
-        automation.cleanup()
-        context.user_data.pop("automation", None)
-        return ConversationHandler.END
-    else:
-        await update.message.reply_text(
-            f"❌ **CAPTCHA Verification Failed**\n\n{result.get('message', 'Unknown error')}\n\n"
-            "Please try again.",
-            parse_mode="Markdown"
-        )
-        return CAPTCHA
+    await update.message.reply_text(
+        "✅ **CAPTCHA Solved**\n\n"
+        "Now enter the OTP you received on your phone.",
+        parse_mode="Markdown"
+    )
+    return OTP
 
 async def cancel(update: Update, context):
     """Cancel conversation."""
+    # Cleanup automation if exists
+    automation = context.user_data.get("automation")
+    if automation:
+        automation.cleanup()
+        context.user_data.pop("automation", None)
+    
     await update.message.reply_text("❌ Operation cancelled.")
     return ConversationHandler.END
 
@@ -496,7 +499,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     
     # Start bot
-    print("🤖 Crownit Bot is running...")
+    logger.info("🤖 Crownit Bot is running...")
     app.run_polling()
 
 if __name__ == "__main__":
