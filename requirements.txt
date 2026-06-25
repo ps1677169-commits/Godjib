@@ -1,0 +1,8 @@
+python-telegram-bot==20.7
+selenium==4.15.2
+webdriver-manager==4.0.1
+requests==2.31.0
+python-dotenv==1.0.0
+Pillow==10.1.0
+pyotp==2.9.0
+colorama==0.4.6
