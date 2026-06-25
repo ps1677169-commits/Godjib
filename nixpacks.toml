@@ -1,12 +1,8 @@
 [phases.setup]
-nixPkgs = ["python311", "chromium", "chromedriver"]
+nixPkgs = ["python311", "chromium", "chromedriver", "google-chrome"]
 
 [phases.install]
 cmds = ["pip install -r requirements.txt"]
 
 [start]
 cmd = "python bot.py"
-
-[env]
-CHROME_BIN = "/run/current-system/sw/bin/chromium"
-CHROMEDRIVER_PATH = "/run/current-system/sw/bin/chromedriver"
