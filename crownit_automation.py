@@ -17,6 +17,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.support.ui import Select
 
 from config import *
 
@@ -92,7 +93,6 @@ def random_name():
     return random.choice(first_names) + " " + random.choice(last_names)
 
 def random_dob_18_plus():
-    """Generate random DOB for someone 18-55 years old."""
     today = datetime.now()
     min_age = 18
     max_age = 55
@@ -116,16 +116,14 @@ def random_city():
 
 class CrownitAutomation:
     def __init__(self, proxy=None, headless=True, user_callback=None):
-        """
-        user_callback: async function to send messages to user
-        """
         self.proxy = proxy
         self.headless = headless
         self.driver = None
         self.wait = None
         self.logged_in = False
         self.user_callback = user_callback
-        self.pending_questions = {}  # Store questions waiting for user input
+        self.pending_questions = {}
+        self.cookie = None
 
     def _get_driver(self):
         chrome_options = Options()
@@ -137,7 +135,7 @@ class CrownitAutomation:
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--window-size=375,812")  # Mobile viewport
+        chrome_options.add_argument("--window-size=375,812")
         chrome_options.add_argument("--user-agent=Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36")
         chrome_options.add_argument("--remote-debugging-port=9222")
         chrome_options.add_argument("--disable-software-rasterizer")
@@ -180,7 +178,6 @@ class CrownitAutomation:
         time.sleep(random.uniform(min_sec, max_sec))
 
     def _find_element(self, by, value, timeout=10):
-        """Find element with wait and return None if not found."""
         try:
             return WebDriverWait(self.driver, timeout).until(EC.presence_of_element_located((by, value)))
         except:
@@ -193,22 +190,53 @@ class CrownitAutomation:
         except:
             return []
 
+    def _find_phone_input(self):
+        selectors = [
+            "input[type='tel']",
+            "input[name='phone']",
+            "input[placeholder*='phone' i]",
+            "input[placeholder*='mobile' i]",
+            "input[placeholder*='number' i]",
+            "input[id*='phone' i]",
+            "input[id*='mobile' i]",
+            "input[aria-label*='phone' i]",
+        ]
+        for sel in selectors:
+            try:
+                elem = self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, sel)))
+                if elem and elem.is_displayed() and elem.is_enabled():
+                    return elem
+            except:
+                continue
+        xpaths = [
+            "//input[@type='tel']",
+            "//input[@name='phone']",
+            "//input[contains(@placeholder, 'phone')]",
+            "//input[contains(@placeholder, 'mobile')]",
+            "//input[contains(@id, 'phone')]",
+            "//input[@inputmode='numeric']",
+            "//input[@autocomplete='tel']",
+        ]
+        for xp in xpaths:
+            try:
+                elem = self.wait.until(EC.presence_of_element_located((By.XPATH, xp)))
+                if elem and elem.is_displayed() and elem.is_enabled():
+                    return elem
+            except:
+                continue
+        return None
+
     # ---------- REGISTRATION FLOW ----------
     def register_and_verify(self, phone):
-        """
-        Complete flow: Open onboarding → Register → Fill details → OTP → Login
-        Returns: dict with status and cookie if successful.
-        """
         try:
             logger.info(f"📱 Starting registration for {phone}")
             self.driver = self._get_driver()
             self.wait = WebDriverWait(self.driver, 20)
 
-            # Step 1: Open onboarding page
             self.driver.get(CROWNIT_ONBOARDING_URL)
             self.random_sleep(3, 5)
 
-            # Step 2: Click Register button
+            # Click Register
             register_btn = None
             buttons = self.driver.find_elements(By.TAG_NAME, "button")
             for btn in buttons:
@@ -216,51 +244,39 @@ class CrownitAutomation:
                     register_btn = btn
                     break
             if not register_btn:
-                # Try by link text
                 register_btn = self._find_element(By.LINK_TEXT, "Register")
-            if not register_btn:
-                register_btn = self._find_element(By.PARTIAL_LINK_TEXT, "Register")
             if not register_btn:
                 register_btn = self._find_element(By.XPATH, "//a[contains(text(),'Register')]")
             if not register_btn:
-                # Try by CSS
                 register_btn = self._find_element(By.CSS_SELECTOR, "a[href*='register'], button[class*='register']")
             if not register_btn:
-                raise Exception("Register button not found on onboarding page.")
-
+                raise Exception("Register button not found.")
             self.human_click(register_btn)
             self.random_sleep(2, 4)
 
-            # Step 3: Fill registration form
             # Phone input
             phone_input = self._find_phone_input()
             if not phone_input:
-                raise Exception("Phone input not found on registration page.")
+                raise Exception("Phone input not found.")
             self.human_type(phone_input, phone)
             self.random_sleep(1, 2)
 
-            # Name input
-            name_input = self._find_element(By.CSS_SELECTOR, "input[name='name'], input[placeholder*='name' i], input[placeholder*='full name' i]")
-            if not name_input:
-                name_input = self._find_element(By.XPATH, "//input[contains(@placeholder, 'Name') or contains(@placeholder, 'name')]")
+            # Name
+            name_input = self._find_element(By.CSS_SELECTOR, "input[name='name'], input[placeholder*='name' i]")
             if name_input:
                 self.human_type(name_input, random_name())
                 self.random_sleep(1, 2)
 
-            # DOB input
-            dob_input = self._find_element(By.CSS_SELECTOR, "input[name='dob'], input[placeholder*='dob' i], input[placeholder*='birth' i], input[type='date']")
-            if not dob_input:
-                dob_input = self._find_element(By.XPATH, "//input[contains(@placeholder, 'DOB') or contains(@placeholder, 'Birth') or contains(@id, 'dob')]")
+            # DOB
+            dob_input = self._find_element(By.CSS_SELECTOR, "input[name='dob'], input[placeholder*='dob' i], input[type='date']")
             if dob_input:
-                dob = random_dob_18_plus()
-                self.human_type(dob_input, dob)
+                self.human_type(dob_input, random_dob_18_plus())
                 self.random_sleep(1, 2)
 
-            # Gender - try dropdown or radio buttons
+            # Gender
             gender_value = random_gender()
             gender_dropdown = self._find_element(By.CSS_SELECTOR, "select[name='gender'], select[id*='gender']")
             if gender_dropdown:
-                from selenium.webdriver.support.ui import Select
                 select = Select(gender_dropdown)
                 try:
                     select.select_by_visible_text(gender_value)
@@ -268,26 +284,22 @@ class CrownitAutomation:
                     select.select_by_index(random.randint(1, 3))
                 self.random_sleep(1, 2)
             else:
-                # Try radio buttons
                 gender_radios = self._find_elements(By.CSS_SELECTOR, "input[type='radio'][name*='gender']")
                 if gender_radios:
                     random.choice(gender_radios).click()
                     self.random_sleep(1, 2)
 
-            # City input
-            city_input = self._find_element(By.CSS_SELECTOR, "input[name='city'], input[placeholder*='city' i], input[placeholder*='location' i]")
-            if not city_input:
-                city_input = self._find_element(By.XPATH, "//input[contains(@placeholder, 'City') or contains(@placeholder, 'Location')]")
+            # City
+            city_input = self._find_element(By.CSS_SELECTOR, "input[name='city'], input[placeholder*='city' i]")
             if city_input:
                 self.human_type(city_input, random_city())
                 self.random_sleep(1, 2)
 
-            # Step 4: Submit registration
+            # Submit
             submit_btn = None
             buttons = self.driver.find_elements(By.TAG_NAME, "button")
             for btn in buttons:
-                txt = btn.text.lower()
-                if "submit" in txt or "register" in txt or "sign up" in txt or "create" in txt:
+                if "submit" in btn.text.lower() or "register" in btn.text.lower():
                     submit_btn = btn
                     break
             if not submit_btn:
@@ -296,127 +308,35 @@ class CrownitAutomation:
                 self.human_click(submit_btn)
                 self.random_sleep(3, 5)
 
-            # Step 5: Check if OTP is sent
-            # Look for OTP input or success message
-            otp_input = self._find_element(By.CSS_SELECTOR, "input[type='text'][maxlength='6'], input[placeholder*='OTP' i], input[name='otp']", timeout=10)
+            # Check OTP
+            otp_input = self._find_element(By.CSS_SELECTOR, "input[type='text'][maxlength='6'], input[name='otp']", timeout=10)
             if otp_input:
-                request_id = f"reg_{int(time.time())}_{phone[-4:]}"
-                return {
-                    "status": "otp_sent",
-                    "request_id": request_id,
-                    "phone": phone,
-                    "message": "OTP sent successfully. Please enter OTP."
-                }
-            else:
-                # Check for CAPTCHA
-                captcha_img = self.driver.find_elements(By.CSS_SELECTOR, "img[src*='captcha'], .captcha, #captcha")
-                if captcha_img:
-                    src = captcha_img[0].get_attribute("src")
-                    if src:
-                        resp = requests.get(src)
-                        captcha_path = f"captcha_{phone}.png"
-                        with open(captcha_path, "wb") as f:
-                            f.write(resp.content)
-                        logger.info("🧩 CAPTCHA detected")
-                        return {
-                            "status": "captcha_required",
-                            "message": "CAPTCHA required",
-                            "captcha_path": captcha_path,
-                            "phone": phone
-                        }
+                return {"status": "otp_sent", "request_id": f"reg_{int(time.time())}_{phone[-4:]}", "phone": phone}
+            
+            captcha_img = self.driver.find_elements(By.CSS_SELECTOR, "img[src*='captcha'], .captcha")
+            if captcha_img:
+                src = captcha_img[0].get_attribute("src")
+                if src:
+                    resp = requests.get(src)
+                    captcha_path = f"captcha_{phone}.png"
+                    with open(captcha_path, "wb") as f:
+                        f.write(resp.content)
+                    return {"status": "captcha_required", "captcha_path": captcha_path, "phone": phone}
 
-                # Maybe already logged in?
-                dashboard = self.driver.find_elements(By.CSS_SELECTOR, ".dashboard, .survey-list, .rewards, [class*='home']")
-                if dashboard:
-                    self.logged_in = True
-                    cookies = self.driver.get_cookies()
-                    cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies]) if cookies else ""
-                    return {
-                        "status": "success",
-                        "message": "Already logged in",
-                        "cookie": cookie_str,
-                        "phone": phone
-                    }
+            dashboard = self.driver.find_elements(By.CSS_SELECTOR, ".dashboard, .survey-list")
+            if dashboard:
+                cookies = self.driver.get_cookies()
+                cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies]) if cookies else ""
+                return {"status": "success", "cookie": cookie_str, "phone": phone}
 
-                raise Exception("Registration submitted but OTP/CAPTCHA not detected.")
+            raise Exception("Registration submitted but OTP/CAPTCHA not detected.")
 
         except Exception as e:
             logger.error(f"❌ Registration error: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
 
-    # ---------- FIND PHONE INPUT ----------
-    def _find_phone_input(self):
-        """Find phone input using multiple strategies."""
-        selectors = [
-            "input[type='tel']",
-            "input[name='phone']",
-            "input[placeholder*='phone' i]",
-            "input[placeholder*='mobile' i]",
-            "input[placeholder*='number' i]",
-            "input[placeholder*='Phone' i]",
-            "input[placeholder*='Mobile' i]",
-            "input[placeholder*='Enter phone' i]",
-            "input[id*='phone' i]",
-            "input[id*='mobile' i]",
-            "input[aria-label*='phone' i]",
-            "input[aria-label*='mobile' i]",
-            "input[data-testid*='phone']",
-            "input[data-testid*='mobile']",
-        ]
-        for sel in selectors:
-            try:
-                elem = self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, sel)))
-                if elem and elem.is_displayed() and elem.is_enabled():
-                    logger.info(f"✅ Found phone input with selector: {sel}")
-                    return elem
-            except:
-                continue
-
-        xpaths = [
-            "//input[@type='tel']",
-            "//input[@name='phone']",
-            "//input[contains(@placeholder, 'phone')]",
-            "//input[contains(@placeholder, 'mobile')]",
-            "//input[contains(@id, 'phone')]",
-            "//input[contains(@id, 'mobile')]",
-            "//input[contains(@class, 'phone')]",
-            "//input[contains(@class, 'mobile')]",
-            "//input[@inputmode='numeric']",
-            "//input[@autocomplete='tel']",
-        ]
-        for xp in xpaths:
-            try:
-                elem = self.wait.until(EC.presence_of_element_located((By.XPATH, xp)))
-                if elem and elem.is_displayed() and elem.is_enabled():
-                    logger.info(f"✅ Found phone input with XPath: {xp}")
-                    return elem
-            except:
-                continue
-
-        try:
-            inputs = self.driver.find_elements(By.TAG_NAME, "input")
-            for inp in inputs:
-                if inp.is_displayed() and inp.is_enabled():
-                    attrs = {
-                        'type': inp.get_attribute('type'),
-                        'name': inp.get_attribute('name'),
-                        'id': inp.get_attribute('id'),
-                        'placeholder': inp.get_attribute('placeholder'),
-                        'class': inp.get_attribute('class'),
-                        'aria-label': inp.get_attribute('aria-label'),
-                        'autocomplete': inp.get_attribute('autocomplete'),
-                    }
-                    combined = ' '.join(str(v) for v in attrs.values() if v).lower()
-                    if any(k in combined for k in ['phone', 'mobile', 'tel', 'number']):
-                        logger.info(f"✅ Found phone input by scanning: {inp.get_attribute('outerHTML')}")
-                        return inp
-        except:
-            pass
-        return None
-
     # ---------- VERIFY OTP ----------
     def verify_otp(self, phone, otp, captcha_solution=None):
-        """Verify OTP after registration or login."""
         try:
             if not self.driver:
                 self.driver = self._get_driver()
@@ -434,15 +354,11 @@ class CrownitAutomation:
                             break
                     self.random_sleep(2, 4)
 
-            # Find OTP input
             otp_input = None
             selectors = [
                 "input[type='text'][maxlength='6']",
                 "input[placeholder*='OTP' i]",
                 "input[name='otp']",
-                "input[placeholder*='verification code' i]",
-                "input[id*='otp' i]",
-                "input[id*='code' i]",
             ]
             for sel in selectors:
                 try:
@@ -468,34 +384,24 @@ class CrownitAutomation:
                 self.human_click(submit_btn)
                 self.random_sleep(3, 5)
 
-            # Check if logged in
-            dashboard = self.driver.find_elements(By.CSS_SELECTOR, ".dashboard, .survey-list, .rewards, [class*='home']")
+            dashboard = self.driver.find_elements(By.CSS_SELECTOR, ".dashboard, .survey-list, .rewards")
             if dashboard:
                 self.logged_in = True
                 cookies = self.driver.get_cookies()
                 cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies]) if cookies else ""
-                return {
-                    "status": "success",
-                    "message": "Login successful",
-                    "cookie": cookie_str,
-                    "phone": phone
-                }
+                return {"status": "success", "cookie": cookie_str, "phone": phone}
             else:
-                error = self.driver.find_elements(By.CSS_SELECTOR, ".error, .alert, [class*='error']")
+                error = self.driver.find_elements(By.CSS_SELECTOR, ".error, .alert")
                 if error:
                     return {"status": "error", "message": error[0].text}
-                return {"status": "error", "message": "Login failed - unknown reason"}
+                return {"status": "error", "message": "Login failed"}
 
         except Exception as e:
             logger.error(f"❌ verify_otp error: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
 
-    # ---------- COMPLETE SURVEY (with user callback) ----------
-    def complete_survey(self, cookie, user_id=None):
-        """
-        Complete survey with human-like behavior.
-        If unknown question type, sends to user via callback.
-        """
+    # ---------- COMPLETE SURVEY (ASYNC) ----------
+    async def complete_survey(self, cookie, user_id=None):
         try:
             if not self.driver:
                 self.driver = self._get_driver()
@@ -506,8 +412,7 @@ class CrownitAutomation:
                     if "=" in c:
                         name, value = c.split("=", 1)
                         self.driver.add_cookie({"name": name, "value": value})
-            else:
-                logger.info("No valid cookie provided for survey.")
+            self.cookie = cookie
 
             self.driver.get(CROWNIT_SURVEY_URL)
             self.random_sleep(3, 5)
@@ -521,7 +426,6 @@ class CrownitAutomation:
 
             question_count = 0
             max_questions = 30
-            survey_data = {"questions": [], "answers": []}
 
             while question_count < max_questions:
                 question_count += 1
@@ -539,22 +443,19 @@ class CrownitAutomation:
                 dropdowns = self.driver.find_elements(By.CSS_SELECTOR, "select")
 
                 if options:
-                    # Multiple choice
                     selected = random.randint(0, len(options)-1) if len(options)>1 else 0
                     try:
                         label = self.driver.find_element(By.XPATH, f"//label[contains(@for, '{options[selected].get_attribute('id')}')]")
                         self.human_click(label)
                     except:
                         self.human_click(options[selected])
-                    survey_data["answers"].append({"type": "choice", "selected": selected})
                     self.random_sleep(0.5, 1.5)
 
                 elif text_inputs:
-                    # Text input - try to answer automatically, or ask user
                     answer = self._generate_text_answer(question_text)
                     if answer:
                         self.human_type(text_inputs[0], answer)
-                        survey_data["answers"].append({"type": "text", "answer": answer})
+                        self.random_sleep(1, 2)
                     else:
                         # Unknown - send to user
                         if self.user_callback and user_id:
@@ -564,49 +465,46 @@ class CrownitAutomation:
                                 f"📝 **Question:** {question_text}\n\n"
                                 f"Please reply with your answer."
                             )
-                            # Wait for user response (handled externally)
-                            # We'll store the question and wait
                             self.pending_questions[user_id] = {
                                 "question": question_text,
                                 "element": text_inputs[0],
                                 "timestamp": time.time()
                             }
-                            # Return to caller with pending status
                             return {
                                 "status": "pending_user_input",
-                                "message": "Question sent to user for input",
+                                "message": "Question sent to user",
                                 "question": question_text,
                                 "question_count": question_count
                             }
-                    self.random_sleep(1, 2)
+                        else:
+                            # No callback – skip with generic answer
+                            self.human_type(text_inputs[0], "N/A")
+                            self.random_sleep(1, 2)
 
                 elif dropdowns:
-                    # Dropdown - select random option
-                    from selenium.webdriver.support.ui import Select
                     select = Select(dropdowns[0])
                     options_count = len(select.options)
                     if options_count > 1:
                         select.select_by_index(random.randint(1, options_count-1))
-                    survey_data["answers"].append({"type": "dropdown", "selected": random.randint(1, options_count-1)})
                     self.random_sleep(0.5, 1.5)
 
                 else:
-                    # Unknown question type
+                    # Unknown type
                     if self.user_callback and user_id:
                         await self.user_callback(
                             user_id,
                             f"❓ **Unknown Question Type**\n\n"
                             f"📝 **Question:** {question_text}\n\n"
-                            f"Please check manually and provide guidance."
+                            f"Please check manually."
                         )
                         return {
                             "status": "pending_user_input",
-                            "message": "Unknown question type, sent to user",
+                            "message": "Unknown question type",
                             "question": question_text,
                             "question_count": question_count
                         }
 
-                # Find next/submit button
+                # Next / Submit
                 buttons = self.driver.find_elements(By.TAG_NAME, "button")
                 found = False
                 for btn in buttons:
@@ -617,16 +515,15 @@ class CrownitAutomation:
                         break
                 if not found:
                     for btn in buttons:
-                        if "submit" in txt or "finish" in txt:
+                        if "submit" in btn.text.lower() or "finish" in btn.text.lower():
                             self.human_click(btn)
                             found = True
                             break
                 if not found:
-                    submit_btns = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit']")
-                    if submit_btns:
-                        self.human_click(submit_btns[0])
+                    sub = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit']")
+                    if sub:
+                        self.human_click(sub[0])
                         found = True
-
                 if found:
                     self.random_sleep(3, 5)
                     if self.driver.find_elements(By.CSS_SELECTOR, ".complete, .thank-you"):
@@ -634,7 +531,6 @@ class CrownitAutomation:
                 else:
                     break
 
-            # Survey complete
             reward_element = self.driver.find_elements(By.CSS_SELECTOR, ".reward, [class*='reward'], .points-earned")
             reward = 0
             if reward_element:
@@ -646,8 +542,7 @@ class CrownitAutomation:
                 "status": "success",
                 "message": "Survey completed",
                 "reward": reward,
-                "questions_answered": question_count,
-                "survey_data": survey_data
+                "questions_answered": question_count
             }
 
         except Exception as e:
@@ -655,38 +550,36 @@ class CrownitAutomation:
             return {"status": "error", "message": str(e)}
 
     def _generate_text_answer(self, question_text):
-        """Generate a generic answer for text questions."""
-        question_lower = question_text.lower()
-        if any(w in question_lower for w in ["name", "your name"]):
+        q = question_text.lower()
+        if any(w in q for w in ["name", "your name"]):
             return random_name()
-        if any(w in question_lower for w in ["city", "location", "town"]):
+        if any(w in q for w in ["city", "location"]):
             return random_city()
-        if any(w in question_lower for w in ["email", "e-mail"]):
+        if any(w in q for w in ["email", "e-mail"]):
             return f"user{random.randint(1000,9999)}@gmail.com"
-        if any(w in question_lower for w in ["age", "old"]):
+        if any(w in q for w in ["age", "old"]):
             return str(random.randint(18, 55))
-        if any(w in question_lower for w in ["gender"]):
+        if any(w in q for w in ["gender"]):
             return random_gender()
-        if any(w in question_lower for w in ["feedback", "comment", "opinion"]):
+        if any(w in q for w in ["feedback", "comment", "opinion"]):
             return random.choice(["Good", "Satisfied", "Okay", "Works well", "Happy"])
-        if any(w in question_lower for w in ["income", "salary", "earn"]):
+        if any(w in q for w in ["income", "salary", "earn"]):
             return random.choice(["25,000-50,000", "50,000-1,00,000", "1,00,000+"])
-        if any(w in question_lower for w in ["education", "study", "school"]):
+        if any(w in q for w in ["education", "study", "school"]):
             return random.choice(["Graduate", "Post Graduate", "Professional"])
         return None
 
-    def continue_survey_with_answer(self, user_id, answer):
-        """Continue survey after user provided an answer."""
+    # ---------- CONTINUE SURVEY (ASYNC) ----------
+    async def continue_survey_with_answer(self, user_id, answer):
         if user_id not in self.pending_questions:
-            return {"status": "error", "message": "No pending question for this user"}
+            return {"status": "error", "message": "No pending question"}
 
         pending = self.pending_questions.pop(user_id)
         element = pending.get("element")
         if element:
             self.human_type(element, answer)
             self.random_sleep(1, 2)
-            # Continue the survey
-            return self.complete_survey(self.cookie, user_id)
+            return await self.complete_survey(self.cookie, user_id)
         return {"status": "error", "message": "Element not found"}
 
     # ---------- REDEEM REWARD ----------
@@ -701,8 +594,6 @@ class CrownitAutomation:
                     if "=" in c:
                         name, value = c.split("=", 1)
                         self.driver.add_cookie({"name": name, "value": value})
-            else:
-                logger.info("No valid cookie provided for redemption.")
 
             self.driver.get(CROWNIT_REWARDS_URL)
             self.random_sleep(3, 5)
