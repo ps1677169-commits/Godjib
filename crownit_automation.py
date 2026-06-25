@@ -13,6 +13,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.core.utils import ChromeType
 from selenium.webdriver.chrome.service import Service
 
 from config import *
@@ -20,9 +21,7 @@ from config import *
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ---------- PROXY LOADER ----------
 def load_proxies():
-    """Load proxies from file, return list."""
     proxies = []
     if os.path.exists(PROXY_LIST_FILE):
         with open(PROXY_LIST_FILE, 'r') as f:
@@ -30,13 +29,11 @@ def load_proxies():
     return proxies
 
 def get_random_proxy():
-    """Return a random proxy from the file, or None if none available."""
     proxies = load_proxies()
     if proxies:
         return random.choice(proxies)
     return None
 
-# ---------- AUTOMATION CLASS ----------
 class CrownitAutomation:
     def __init__(self, proxy=None, headless=True):
         self.proxy = proxy
@@ -46,7 +43,6 @@ class CrownitAutomation:
         self.logged_in = False
 
     def _get_driver(self):
-        """Setup Chrome driver with proxy if available."""
         chrome_options = Options()
         if self.headless:
             chrome_options.add_argument("--headless=new")
@@ -59,18 +55,26 @@ class CrownitAutomation:
         chrome_options.add_argument("--window-size=375,812")
         chrome_options.add_argument("--user-agent=Mozilla/5.0 (Linux; Android 11; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36")
 
-        # Proxy
+        # Chromium binary location (set by nixpacks)
+        chrome_options.binary_location = "/run/current-system/sw/bin/chromium"
+
         if self.proxy:
             logger.info(f"🌐 Using proxy: {self.proxy}")
             chrome_options.add_argument(f"--proxy-server={self.proxy}")
         else:
-            logger.info("🌐 No proxy used (direct connection)")
+            logger.info("🌐 No proxy used (direct)")
 
-        # Disable images for speed
         prefs = {"profile.managed_default_content_settings.images": 2}
         chrome_options.add_experimental_option("prefs", prefs)
 
-        service = Service(ChromeDriverManager().install())
+        try:
+            # Try to use Chromium driver
+            driver_path = ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()
+        except Exception as e:
+            logger.error(f"Chromium driver install error: {e}, falling back to Chrome driver")
+            driver_path = ChromeDriverManager().install()
+
+        service = Service(driver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         return driver
@@ -86,18 +90,18 @@ class CrownitAutomation:
     def random_sleep(self, min_sec=1, max_sec=3):
         time.sleep(random.uniform(min_sec, max_sec))
 
+    # ------------------------------------------------------------
+    # CREATE ACCOUNT
+    # ------------------------------------------------------------
     def create_account(self, phone):
-        """Create a new Crownit account using OTP flow."""
         try:
             logger.info(f"📱 Creating account for {phone}")
             self.driver = self._get_driver()
             self.wait = WebDriverWait(self.driver, 15)
 
-            # 1. Go to login page
             self.driver.get(CROWNIT_LOGIN_URL)
             self.random_sleep(2, 4)
 
-            # 2. Find phone input
             phone_input = None
             selectors = ["input[type='tel']", "input[name='phone']", "input[placeholder*='phone' i]", "input[placeholder*='mobile' i]"]
             for sel in selectors:
@@ -107,12 +111,11 @@ class CrownitAutomation:
                 except:
                     continue
             if not phone_input:
-                raise Exception("Phone input field not found on page.")
+                raise Exception("Phone input field not found.")
 
             self.human_type(phone_input, phone)
             self.random_sleep(1, 2)
 
-            # 3. Click continue/Get OTP button
             buttons = self.driver.find_elements(By.TAG_NAME, "button")
             continue_btn = None
             for btn in buttons:
@@ -121,26 +124,23 @@ class CrownitAutomation:
                     continue_btn = btn
                     break
             if not continue_btn:
-                # Try by type
-                continue_btn = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit']")
-                if continue_btn:
-                    continue_btn = continue_btn[0]
+                cont = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit']")
+                if cont:
+                    continue_btn = cont[0]
                 else:
                     raise Exception("Continue/Get OTP button not found.")
             self.human_click(continue_btn)
             self.random_sleep(2, 4)
 
-            # 4. Check for CAPTCHA
             captcha_img = self.driver.find_elements(By.CSS_SELECTOR, "img[src*='captcha'], .captcha, #captcha")
             if captcha_img:
                 src = captcha_img[0].get_attribute("src")
                 if src:
-                    # Download captcha image
                     resp = requests.get(src)
                     captcha_path = f"captcha_{phone}.png"
                     with open(captcha_path, "wb") as f:
                         f.write(resp.content)
-                    logger.info("🧩 CAPTCHA detected, saved for user")
+                    logger.info("🧩 CAPTCHA detected")
                     return {
                         "status": "captcha_required",
                         "message": "CAPTCHA required",
@@ -148,7 +148,6 @@ class CrownitAutomation:
                         "phone": phone
                     }
 
-            # 5. OTP sent
             request_id = f"req_{int(time.time())}_{phone[-4:]}"
             return {
                 "status": "otp_sent",
@@ -159,13 +158,12 @@ class CrownitAutomation:
 
         except Exception as e:
             logger.error(f"❌ create_account error: {e}", exc_info=True)
-            return {
-                "status": "error",
-                "message": str(e)
-            }
+            return {"status": "error", "message": str(e)}
 
+    # ------------------------------------------------------------
+    # VERIFY OTP
+    # ------------------------------------------------------------
     def verify_otp(self, phone, otp, captcha_solution=None):
-        """Verify OTP and complete login."""
         try:
             if not self.driver:
                 self.driver = self._get_driver()
@@ -173,7 +171,6 @@ class CrownitAutomation:
                 self.driver.get(CROWNIT_LOGIN_URL)
                 self.random_sleep(2, 4)
 
-            # If CAPTCHA solution provided
             if captcha_solution:
                 captcha_input = self.driver.find_elements(By.CSS_SELECTOR, "input[name='captcha'], #captcha_input")
                 if captcha_input:
@@ -184,7 +181,6 @@ class CrownitAutomation:
                         self.human_click(verify_btn[0])
                         self.random_sleep(2, 4)
 
-            # Enter OTP
             otp_input = None
             selectors = ["input[type='text'][maxlength='6']", "input[placeholder*='OTP' i]", "input[name='otp']"]
             for sel in selectors:
@@ -199,18 +195,16 @@ class CrownitAutomation:
             self.human_type(otp_input, otp)
             self.random_sleep(1, 2)
 
-            # Submit OTP
             submit_btn = self.driver.find_elements(By.CSS_SELECTOR, "button[type='submit'], button:contains('Verify'), button:contains('Login')")
             if submit_btn:
                 self.human_click(submit_btn[0])
                 self.random_sleep(3, 5)
 
-            # Check login success
             dashboard = self.driver.find_elements(By.CSS_SELECTOR, ".dashboard, .survey-list, .rewards, [class*='home']")
             if dashboard:
                 self.logged_in = True
                 cookies = self.driver.get_cookies()
-                cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
+                cookie_str = "; ".join([f"{c['name']}={c['value']}" for c in cookies]) if cookies else ""
                 return {
                     "status": "success",
                     "message": "Login successful",
@@ -227,18 +221,22 @@ class CrownitAutomation:
             logger.error(f"❌ verify_otp error: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
 
+    # ------------------------------------------------------------
+    # COMPLETE SURVEY
+    # ------------------------------------------------------------
     def complete_survey(self, cookie):
-        """Complete survey using cookie."""
         try:
             if not self.driver:
                 self.driver = self._get_driver()
                 self.wait = WebDriverWait(self.driver, 15)
 
-            if cookie:
+            if cookie and isinstance(cookie, str) and "=" in cookie:
                 for c in cookie.split("; "):
                     if "=" in c:
                         name, value = c.split("=", 1)
                         self.driver.add_cookie({"name": name, "value": value})
+            else:
+                logger.info("No valid cookie provided for survey.")
 
             self.driver.get(CROWNIT_SURVEY_URL)
             self.random_sleep(3, 5)
@@ -307,18 +305,22 @@ class CrownitAutomation:
             logger.error(f"❌ complete_survey error: {e}", exc_info=True)
             return {"status": "error", "message": str(e)}
 
+    # ------------------------------------------------------------
+    # REDEEM REWARD
+    # ------------------------------------------------------------
     def redeem_reward(self, cookie, reward_type="amazon"):
-        """Redeem reward."""
         try:
             if not self.driver:
                 self.driver = self._get_driver()
                 self.wait = WebDriverWait(self.driver, 15)
 
-            if cookie:
+            if cookie and isinstance(cookie, str) and "=" in cookie:
                 for c in cookie.split("; "):
                     if "=" in c:
                         name, value = c.split("=", 1)
                         self.driver.add_cookie({"name": name, "value": value})
+            else:
+                logger.info("No valid cookie provided for redemption.")
 
             self.driver.get(CROWNIT_REWARDS_URL)
             self.random_sleep(3, 5)
